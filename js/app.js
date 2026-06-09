@@ -1,33 +1,72 @@
 import { appState, resetState } from "./state.js";
-import { initRenderer, renderApp, renderClock } from "./renderer.js";
+import { initRenderer, renderApp, renderDeviceRuntimeState, renderClock } from "./renderer.js";
+import { configureRenderer, markDirty, renderNow } from "./scheduler.js";
 import { addLog, clearLogs } from "./logger.js";
-import { executeCommand, executeTextCommand, handleManualDeviceCommand, updateDeviceLevel } from "./controller.js";
+import {
+  executeCommand,
+  executeScene,
+  executeTextCommand,
+  handleManualDeviceCommand,
+  updateDeviceLevel,
+} from "./controller.js";
 import { handleGestureResult } from "./gesture.js";
 import { startCameraGestureRecognition, stopCameraGestureRecognition } from "./gestureCamera.js";
 import { initVoiceRecognition, startVoiceRecognition, stopVoiceRecognition } from "./voice.js";
-import { setVoiceprintAuthorized } from "./voiceprint.js";
+import {
+  enrollVoiceprint,
+  resetVoiceprint,
+  setVoiceprintAuthorized,
+  verifyVoiceprint,
+} from "./voiceprint.js";
+import { initHero } from "./hero.js";
+import { initToasts } from "./toast.js";
+import { readStored, writeStored } from "./storage.js";
+import { initDiagnostics, updateGestureDiagnostics, updateSelfCheckDiagnostics } from "./diagnostics.js";
+import {
+  persistDeviceState,
+  persistVoiceprintState,
+  restoreDeviceState,
+  restoreVoiceprintState,
+} from "./persistence.js";
+import { runSmokeTest } from "./smokeTest.js";
 
-const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+const AMBIANCE_KEY = "vvcs-ambiance";
 
 function initApp() {
   initRenderer();
+  // Wire the renderer into the scheduler so business modules can request a
+  // repaint via markDirty() without importing the renderer directly.
+  configureRenderer({ full: renderApp, runtime: renderDeviceRuntimeState });
+  // Restore the saved day/night ambiance before the first paint.
+  const savedAmbiance = readStored(AMBIANCE_KEY);
+  if (savedAmbiance === "day" || savedAmbiance === "night") {
+    appState.ambiance = savedAmbiance;
+  }
+  restoreDeviceState();
+  restoreVoiceprintState();
+  initDiagnostics();
   initVoiceRecognition();
   bindEvents();
-  appState.voiceprint.latestTime = new Date();
+  initHero();
+  initToasts();
   addLog("系统初始化完成", "system");
-  addLog("设备状态初始化：客厅灯、空调、风扇、窗帘 已开启", "info");
-  addLog("统一指令执行入口已就绪：GUI / 语音 / 手势共享控制逻辑", "info");
+  addLog("能力诊断已就绪：前端、语音、声纹、摄像头手势、自检统一展示", "info");
+  addLog("统一指令执行入口已就绪：GUI / 文本 / 语音 / 手势 / 场景共享控制逻辑", "info");
   renderClock();
-  renderApp();
+  renderNow("full");
 
   window.setInterval(renderClock, 1000);
 
   window.__voiceControlDemo = {
     appState,
     executeCommand,
+    executeScene,
     executeTextCommand,
+    enrollVoiceprint,
     handleGestureResult,
+    resetVoiceprint,
     updateDeviceLevel,
+    verifyVoiceprint,
     startCameraGestureRecognition,
     stopCameraGestureRecognition,
     setVoiceprintAuthorized,
@@ -38,17 +77,44 @@ function initApp() {
 function bindEvents() {
   document.getElementById("startVoiceButton").addEventListener("click", startVoiceRecognition);
   document.getElementById("stopVoiceButton").addEventListener("click", stopVoiceRecognition);
-  document.getElementById("startCameraGestureButton").addEventListener("click", () => startCameraGestureRecognition());
+  document.getElementById("startCameraGestureButton").addEventListener("click", () => {
+    const input = document.getElementById("gestureServiceUrlInput");
+    startCameraGestureRecognition(input?.value);
+  });
   document.getElementById("stopCameraGestureButton").addEventListener("click", stopCameraGestureRecognition);
   document.getElementById("authorizedButton").addEventListener("click", () => setVoiceprintAuthorized(true));
   document.getElementById("unauthorizedButton").addEventListener("click", () => setVoiceprintAuthorized(false));
+  document.getElementById("enrollVoiceprintButton").addEventListener("click", () => {
+    enrollVoiceprint(getVoiceprintSampleInput());
+  });
+  document.getElementById("verifyVoiceprintButton").addEventListener("click", () => {
+    verifyVoiceprint(getVoiceprintSampleInput());
+  });
+  document.getElementById("resetVoiceprintButton").addEventListener("click", resetVoiceprint);
+  document.getElementById("gestureServiceUrlInput").addEventListener("change", (event) => {
+    appState.gesture.serviceUrl = event.target.value.trim() || appState.gesture.serviceUrl;
+    updateGestureDiagnostics({
+      status: appState.gesture.serviceStatus,
+      url: appState.gesture.serviceUrl,
+      message: appState.gesture.serviceMessage,
+    });
+  });
+  document.getElementById("logTypeFilter").addEventListener("change", (event) => {
+    appState.logFilter.type = event.target.value;
+    markDirty("runtime");
+  });
+  document.getElementById("logSourceFilter").addEventListener("change", (event) => {
+    appState.logFilter.source = event.target.value;
+    markDirty("runtime");
+  });
   document.getElementById("clearLogsButton").addEventListener("click", () => {
     clearLogs();
     addLog("日志已清空", "system");
-    renderApp();
+    markDirty();
   });
   document.getElementById("resetSystemButton").addEventListener("click", resetSystem);
   document.getElementById("runSmokeTestButton").addEventListener("click", runSmokeTest);
+  document.getElementById("ambianceToggleButton").addEventListener("click", toggleAmbiance);
 
   document.getElementById("manualCommandForm").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -80,9 +146,21 @@ function bindEvents() {
   });
 
   document.body.addEventListener("click", (event) => {
+    const exampleChip = event.target.closest("[data-example-command]");
+    if (exampleChip) {
+      executeTextCommand(exampleChip.dataset.exampleCommand, "text");
+      return;
+    }
+
     const gestureButton = event.target.closest("[data-gesture]");
     if (gestureButton) {
       handleGestureResult(gestureButton.dataset.gesture);
+      return;
+    }
+
+    const sceneButton = event.target.closest("[data-scene]");
+    if (sceneButton) {
+      executeScene(sceneButton.dataset.scene, "gui");
       return;
     }
 
@@ -96,75 +174,25 @@ function bindEvents() {
 function resetSystem() {
   resetState();
   clearLogs();
+  initDiagnostics();
+  persistDeviceState();
+  persistVoiceprintState();
+  updateSelfCheckDiagnostics(null, { render: false });
   addLog("系统已重置为演示初始状态", "system");
-  addLog("设备状态初始化：客厅灯、空调、风扇、窗帘 已开启", "info");
-  renderApp();
+  addLog("设备与声纹状态已恢复为首次演示状态", "info");
+  markDirty();
 }
 
-async function runSmokeTest() {
-  addLog("开始交互自检：GUI、手势、声纹、异常指令", "system");
-  setVoiceprintAuthorized(true);
-  await sleep(180);
+function toggleAmbiance() {
+  appState.ambiance = appState.ambiance === "day" ? "night" : "day";
+  writeStored(AMBIANCE_KEY, appState.ambiance);
+  addLog(`房间氛围已切换为${appState.ambiance === "day" ? "白昼" : "夜间"}模式`, "info");
+  markDirty();
+}
 
-  executeCommand({ device: "light", action: "off" }, "test");
-  await sleep(180);
-  executeCommand({ device: "light", action: "on" }, "test");
-  await sleep(180);
-  executeCommand({ device: "airConditioner", action: "off" }, "test");
-  await sleep(180);
-  executeCommand({ device: "airConditioner", action: "on" }, "test");
-  await sleep(180);
-  executeCommand({ device: "all", action: "off" }, "test");
-  await sleep(180);
-  executeCommand({ device: "all", action: "on" }, "test");
-  await sleep(180);
-
-  updateDeviceLevel("light", 35, { source: "test", render: true, log: true });
-  await sleep(180);
-  updateDeviceLevel("light", 92, { source: "test", render: true, log: true });
-  await sleep(180);
-  updateDeviceLevel("airConditioner", 16, { source: "test", render: true, log: true });
-  await sleep(180);
-  updateDeviceLevel("airConditioner", 30, { source: "test", render: true, log: true });
-  await sleep(180);
-  updateDeviceLevel("fan", 10, { source: "test", render: true, log: true });
-  await sleep(180);
-  updateDeviceLevel("curtain", 100, { source: "test", render: true, log: true });
-  await sleep(180);
-  updateDeviceLevel("curtain", 0, { source: "test", render: true, log: true });
-  await sleep(180);
-
-  handleGestureResult("palm");
-  await sleep(180);
-  handleGestureResult("fist");
-  await sleep(180);
-  handleGestureResult("Open_Palm", { source: "camera", confidence: 0.92, stableMs: 640 });
-  await sleep(180);
-  handleGestureResult("Closed_Fist", { source: "camera", confidence: 0.9, stableMs: 680 });
-  await sleep(180);
-  handleGestureResult("victory");
-  await sleep(180);
-  handleGestureResult("raise");
-  await sleep(180);
-
-  setVoiceprintAuthorized(true);
-  await sleep(180);
-  executeTextCommand("打开客厅灯", "voice");
-  await sleep(180);
-  setVoiceprintAuthorized(false);
-  await sleep(180);
-  executeTextCommand("关闭空调", "voice");
-  await sleep(180);
-  setVoiceprintAuthorized(true);
-  await sleep(180);
-
-  executeTextCommand("播放音乐", "text");
-  await sleep(180);
-  executeTextCommand("", "text");
-  await sleep(180);
-
-  addLog("交互自检完成：状态闭环、异常提示、声纹拒绝路径均已执行", "success");
-  renderApp();
+function getVoiceprintSampleInput() {
+  const input = document.getElementById("voiceprintSampleInput");
+  return input?.value || appState.voiceprint.samplePhrase;
 }
 
 document.addEventListener("DOMContentLoaded", initApp);

@@ -286,8 +286,63 @@ async def run_websocket_server(args: argparse.Namespace) -> None:
 
     async with websockets.serve(handler, args.host, args.port):
         print(f"Gesture service running at ws://{args.host}:{args.port}/ws/gesture")
+        print(
+            "Config: "
+            f"camera={args.camera}, model={args.model}, confidence={args.confidence}, "
+            f"stable_ms={args.stable_ms}, cooldown_ms={args.cooldown_ms}, "
+            f"frame_delay_ms={args.frame_delay_ms}"
+        )
         print("Press Ctrl+C to stop.")
         await run_camera_loop(args, clients)
+
+
+def self_check(args: argparse.Namespace) -> int:
+    checks: list[dict[str, Any]] = []
+
+    def record(name: str, ok: bool, detail: str) -> None:
+        checks.append({"name": name, "ok": ok, "detail": detail})
+
+    try:
+        cv2, _, _, _ = import_runtime_modules()
+        record("dependencies", True, "OpenCV, MediaPipe and websockets imported")
+    except SystemExit as exc:
+        record("dependencies", False, str(exc))
+        print(json.dumps({"status": "fail", "checks": checks}, ensure_ascii=False, indent=2))
+        return 1
+
+    record(
+        "model",
+        args.model.exists() and args.model.stat().st_size > 0,
+        str(args.model) if args.model.exists() else "model file missing",
+    )
+
+    capture = cv2.VideoCapture(args.camera)
+    camera_ok = capture.isOpened()
+    record(
+        "camera",
+        camera_ok,
+        f"camera index {args.camera} opened" if camera_ok else f"cannot open camera index {args.camera}",
+    )
+    capture.release()
+
+    ok = all(item["ok"] for item in checks)
+    print(
+        json.dumps(
+            {
+                "status": "pass" if ok else "fail",
+                "host": args.host,
+                "port": args.port,
+                "camera": args.camera,
+                "confidence": args.confidence,
+                "stable_ms": args.stable_ms,
+                "cooldown_ms": args.cooldown_ms,
+                "checks": checks,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0 if ok else 1
 
 
 def test_images(args: argparse.Namespace) -> None:
@@ -330,12 +385,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--observation-interval-ms", type=int, default=300)
     parser.add_argument("--preview", action="store_true", help="Show OpenCV preview window. Press q to quit.")
     parser.add_argument("--test-images", type=Path, nargs="*", help="Run static image recognition and exit.")
+    parser.add_argument("--self-check", action="store_true", help="Check dependencies, model file and camera, then exit.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     args.model = args.model.resolve()
+
+    if args.self_check:
+        return self_check(args)
 
     if args.test_images:
         test_images(args)

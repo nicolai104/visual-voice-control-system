@@ -1,5 +1,5 @@
 import { appState, DEVICE_ORDER, LEVEL_SETTINGS } from "./state.js";
-import { formatTime, logTypeLabel } from "./logger.js";
+import { formatTime, logSourceLabel, logTypeLabel } from "./logger.js";
 
 const icons = {
   user: '<svg viewBox="0 0 24 24"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/></svg>',
@@ -22,6 +22,9 @@ const icons = {
   ac: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="9" rx="2"/><path d="M7 18h.1"/><path d="M12 18h.1"/><path d="M17 18h.1"/><path d="M6 10h12"/></svg>',
   fan: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 9c1-5 7-5 7-1 0 3-4 4-7 4"/><path d="M14.6 13.5c4 3 1 8-2.4 6-2.6-1.5-.9-5 .2-7"/><path d="M9.6 13.3c-5 2-8-3-4.6-5 2.6-1.5 5 1.8 6.8 3.4"/></svg>',
   curtain: '<svg viewBox="0 0 24 24"><path d="M4 4h16"/><path d="M5 4v16"/><path d="M19 4v16"/><path d="M5 20h14"/><path d="M9 4v16"/><path d="M15 4v16"/><path d="M5 12h14"/></svg>',
+  intro: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>',
+  sun: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.9 4.9l1.4 1.4"/><path d="M17.7 17.7l1.4 1.4"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M4.9 19.1l1.4-1.4"/><path d="M17.7 6.3l1.4-1.4"/></svg>',
+  moon: '<svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>',
 };
 
 let refs = null;
@@ -53,12 +56,33 @@ export function initRenderer() {
     latestVoiceprintText: document.getElementById("latestVoiceprintText"),
     latestVoiceprintMeta: document.getElementById("latestVoiceprintMeta"),
     latestVoiceprintTime: document.getElementById("latestVoiceprintTime"),
+    verificationMark: document.getElementById("verificationMark"),
+    voiceprintModeHint: document.getElementById("voiceprintModeHint"),
+    voiceprintSampleInput: document.getElementById("voiceprintSampleInput"),
+    gestureServiceUrlInput: document.getElementById("gestureServiceUrlInput"),
+    diagnosticRows: document.querySelectorAll(".diagnostic-row"),
+    diagnosticFrontendTitle: document.getElementById("diagnosticFrontendTitle"),
+    diagnosticFrontendMeta: document.getElementById("diagnosticFrontendMeta"),
+    diagnosticSpeechTitle: document.getElementById("diagnosticSpeechTitle"),
+    diagnosticSpeechMeta: document.getElementById("diagnosticSpeechMeta"),
+    diagnosticGestureTitle: document.getElementById("diagnosticGestureTitle"),
+    diagnosticGestureMeta: document.getElementById("diagnosticGestureMeta"),
+    diagnosticVoiceprintTitle: document.getElementById("diagnosticVoiceprintTitle"),
+    diagnosticVoiceprintMeta: document.getElementById("diagnosticVoiceprintMeta"),
+    diagnosticSelfCheckTitle: document.getElementById("diagnosticSelfCheckTitle"),
+    diagnosticSelfCheckMeta: document.getElementById("diagnosticSelfCheckMeta"),
+    gestureRepairList: document.getElementById("gestureRepairList"),
+    selfCheckReport: document.getElementById("selfCheckReport"),
+    logTypeFilter: document.getElementById("logTypeFilter"),
+    logSourceFilter: document.getElementById("logSourceFilter"),
     logOutput: document.getElementById("logOutput"),
     lightLevel: document.getElementById("lightLevel"),
     curtainLevel: document.getElementById("curtainLevel"),
     acTemperature: document.getElementById("acTemperature"),
     fanLevel: document.getElementById("fanLevel"),
     temperatureValue: document.getElementById("temperatureValue"),
+    ambianceToggleButton: document.getElementById("ambianceToggleButton"),
+    ambianceLabel: document.getElementById("ambianceLabel"),
   };
 
   renderIconElements(document);
@@ -76,10 +100,21 @@ export function renderApp() {
   applyDeviceVisualVariables();
   renderTopStatus();
   renderVoiceprint();
+  renderDiagnostics();
   renderDevices();
+  renderAmbiance();
   renderResults();
   renderLogs();
   renderIconElements(document);
+}
+
+function renderAmbiance() {
+  if (!refs.ambianceToggleButton) return;
+  const isDay = appState.ambiance === "day";
+  if (refs.ambianceLabel) refs.ambianceLabel.textContent = isDay ? "白昼" : "夜间";
+  // The icon span is hydrated once (dataset.rendered), so swap its SVG directly.
+  const iconSlot = refs.ambianceToggleButton.querySelector(".chip-icon");
+  if (iconSlot) iconSlot.innerHTML = icons[isDay ? "sun" : "moon"];
 }
 
 export function renderDeviceRuntimeState() {
@@ -90,6 +125,7 @@ export function renderDeviceRuntimeState() {
   updateManualSliderDisplays();
   renderDeviceStatusList();
   renderSceneReadouts();
+  renderDiagnostics();
   renderResults();
   renderLogs();
   renderIconElements(document);
@@ -97,6 +133,7 @@ export function renderDeviceRuntimeState() {
 
 function renderBodyFlags() {
   document.body.dataset.voiceListening = String(appState.voice.isListening);
+  document.body.dataset.ambiance = appState.ambiance;
   document.body.dataset.light = appState.devices.light.status ? "on" : "off";
   document.body.dataset.airConditioner = appState.devices.airConditioner.status ? "on" : "off";
   document.body.dataset.fan = appState.devices.fan.status ? "on" : "off";
@@ -131,10 +168,18 @@ function applyDeviceVisualVariables() {
 function renderTopStatus() {
   const voiceText = appState.voice.isListening ? "语音监听中" : "语音待机";
   const gestureText = appState.gesture.latestCode ? `${appState.gesture.latestGesture}` : "手势待机";
-  const identityText = appState.voiceprint.authorized ? "授权用户" : "未授权用户";
+  const identityText = !appState.voiceprint.enrolled
+    ? "声纹未录入"
+    : appState.voiceprint.mode === "authorized"
+      ? "声纹通过"
+      : "声纹拒绝";
 
   setChip(refs.runtimeStatus, appState.runtimeStatus, "success");
-  setChip(refs.identityStatus, identityText, appState.voiceprint.authorized ? "success" : "danger");
+  setChip(
+    refs.identityStatus,
+    identityText,
+    appState.voiceprint.mode === "authorized" ? "success" : appState.voiceprint.enrolled ? "danger" : "warning"
+  );
   setChip(refs.voiceStatus, voiceText, appState.voice.isListening ? "info" : "neutral");
   setChip(refs.gestureStatus, gestureText, appState.gesture.latestCode ? "info" : "neutral");
   renderGestureServiceStatus();
@@ -154,14 +199,26 @@ function setChip(element, text, mood) {
 
 function renderVoiceprint() {
   const authorized = appState.voiceprint.authorized;
-  const title = authorized ? "声纹验证通过" : "声纹验证失败";
-  const meta = authorized ? `置信度 ${appState.voiceprint.confidence}%` : "非授权用户，拒绝语音控制";
+  const mode = appState.voiceprint.mode;
+  const enrolled = appState.voiceprint.enrolled;
+  const title = !enrolled ? "声纹样本未录入" : mode === "authorized" ? "声纹验证通过" : "声纹验证失败";
+  const meta = appState.voiceprint.lastMessage || (!enrolled ? "请先录入固定短句" : "等待声纹验证");
 
   refs.verificationTitle.textContent = title;
   refs.verificationMeta.textContent = meta;
-  refs.verificationCard.classList.toggle("danger", !authorized);
+  refs.verificationCard.classList.toggle("danger", enrolled && mode === "rejected");
+  refs.verificationCard.classList.toggle("warning", !enrolled);
   refs.authorizedButton.classList.toggle("active", authorized);
   refs.unauthorizedButton.classList.toggle("active", !authorized);
+  if (refs.verificationMark) refs.verificationMark.textContent = mode === "authorized" ? "✓" : "!";
+  if (refs.voiceprintModeHint) {
+    refs.voiceprintModeHint.textContent = enrolled
+      ? `样本：${appState.voiceprint.sampleSummary || "已录入"}；当前测试身份：${authorized ? "授权" : "未授权"}`
+      : "主流程：录入固定短句后再验证声纹。";
+  }
+  if (refs.voiceprintSampleInput && document.activeElement !== refs.voiceprintSampleInput) {
+    refs.voiceprintSampleInput.value = appState.voiceprint.samplePhrase;
+  }
 }
 
 function renderDevices() {
@@ -276,10 +333,8 @@ function renderResults() {
   refs.latestGestureMeta.textContent = getGestureMetaText();
   refs.latestGestureTime.textContent = appState.gesture.latestTime ? formatTime(appState.gesture.latestTime) : "--:--:--";
 
-  refs.latestVoiceprintText.textContent = appState.voiceprint.authorized ? "声纹验证通过" : "声纹验证失败";
-  refs.latestVoiceprintMeta.textContent = appState.voiceprint.authorized
-    ? `用户：授权用户　置信度：${appState.voiceprint.confidence}%`
-    : "用户：未授权用户　控制已拒绝";
+  refs.latestVoiceprintText.textContent = getVoiceprintResultTitle();
+  refs.latestVoiceprintMeta.textContent = getVoiceprintResultMeta();
   refs.latestVoiceprintTime.textContent = appState.voiceprint.latestTime
     ? formatTime(appState.voiceprint.latestTime)
     : "--:--:--";
@@ -302,6 +357,9 @@ function renderGestureServiceStatus() {
   refs.gestureServiceTitle.textContent = statusMap[appState.gesture.serviceStatus] || "摄像头识别状态未知";
   refs.gestureServiceMeta.textContent = appState.gesture.serviceMessage;
   refs.gestureServiceDot.dataset.status = appState.gesture.serviceStatus;
+  if (refs.gestureServiceUrlInput && document.activeElement !== refs.gestureServiceUrlInput) {
+    refs.gestureServiceUrlInput.value = appState.gesture.serviceUrl;
+  }
 }
 
 function getGestureMetaText() {
@@ -319,7 +377,10 @@ function getGestureMetaText() {
 function renderLogs() {
   refs.logOutput.innerHTML = "";
 
-  appState.logs.forEach((entry) => {
+  if (refs.logTypeFilter) refs.logTypeFilter.value = appState.logFilter.type;
+  if (refs.logSourceFilter) refs.logSourceFilter.value = appState.logFilter.source;
+
+  getFilteredLogs().forEach((entry) => {
     const row = document.createElement("div");
     row.className = `log-row ${entry.type}`;
 
@@ -329,7 +390,7 @@ function renderLogs() {
 
     const type = document.createElement("span");
     type.className = "log-type";
-    type.textContent = logTypeLabel(entry.type);
+    type.textContent = `${logTypeLabel(entry.type)}/${logSourceLabel(entry.source)}`;
 
     const message = document.createElement("span");
     message.className = "log-message";
@@ -340,6 +401,84 @@ function renderLogs() {
   });
 
   refs.logOutput.scrollTop = refs.logOutput.scrollHeight;
+}
+
+function renderDiagnostics() {
+  const diagnostics = appState.diagnostics;
+  setDiagnosticRow(0, diagnostics.frontend, refs.diagnosticFrontendTitle, refs.diagnosticFrontendMeta);
+  setDiagnosticRow(1, diagnostics.speech, refs.diagnosticSpeechTitle, refs.diagnosticSpeechMeta);
+  setDiagnosticRow(2, diagnostics.gestureService, refs.diagnosticGestureTitle, refs.diagnosticGestureMeta);
+  setDiagnosticRow(3, diagnostics.voiceprint, refs.diagnosticVoiceprintTitle, refs.diagnosticVoiceprintMeta);
+  setDiagnosticRow(4, diagnostics.selfCheck, refs.diagnosticSelfCheckTitle, refs.diagnosticSelfCheckMeta);
+  renderGestureRepairList();
+  renderSelfCheckReport();
+}
+
+function setDiagnosticRow(index, item, titleRef, metaRef) {
+  const row = refs.diagnosticRows?.[index];
+  if (row) row.dataset.status = item.status;
+  if (titleRef) titleRef.textContent = item.title;
+  if (metaRef) metaRef.textContent = item.meta;
+}
+
+function renderGestureRepairList() {
+  if (!refs.gestureRepairList) return;
+  const gesture = appState.diagnostics.gestureService;
+  refs.gestureRepairList.innerHTML = "";
+  if (gesture.status === "ok") return;
+  gesture.repairSteps.forEach((step) => {
+    const item = document.createElement("li");
+    item.textContent = step;
+    refs.gestureRepairList.appendChild(item);
+  });
+}
+
+function renderSelfCheckReport() {
+  if (!refs.selfCheckReport) return;
+  refs.selfCheckReport.innerHTML = "";
+  const items = appState.diagnostics.selfCheck.items;
+  if (!items.length) return;
+
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "self-check-item";
+    row.dataset.status = item.status;
+
+    const name = document.createElement("strong");
+    name.textContent = item.name;
+    const duration = document.createElement("span");
+    duration.textContent = `${item.durationMs}ms`;
+    const detail = document.createElement("span");
+    detail.textContent = item.error || (item.status === "pass" ? "通过" : "失败");
+    const result = document.createElement("span");
+    result.textContent = item.status === "pass" ? "PASS" : "FAIL";
+
+    row.append(name, result, duration, detail);
+    refs.selfCheckReport.appendChild(row);
+  });
+}
+
+function getFilteredLogs() {
+  return appState.logs.filter((entry) => {
+    const typeOk = appState.logFilter.type === "all" || entry.type === appState.logFilter.type;
+    const sourceOk = appState.logFilter.source === "all" || entry.source === appState.logFilter.source;
+    return typeOk && sourceOk;
+  });
+}
+
+function getVoiceprintResultTitle() {
+  if (!appState.voiceprint.enrolled) return "声纹样本未录入";
+  if (appState.voiceprint.mode === "authorized") return "声纹验证通过";
+  if (appState.voiceprint.mode === "rejected") return "声纹验证失败";
+  return "声纹等待验证";
+}
+
+function getVoiceprintResultMeta() {
+  const identity = appState.voiceprint.authorized ? "授权测试用户" : "未授权测试用户";
+  if (!appState.voiceprint.enrolled) return `用户：${identity}　请先录入声纹`;
+  const confidence =
+    appState.voiceprint.confidence === null ? "--" : `${appState.voiceprint.confidence}%`;
+  return `用户：${identity}　置信度：${confidence}`;
 }
 
 export function renderIconElements(root = document) {

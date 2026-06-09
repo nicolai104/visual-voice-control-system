@@ -1,21 +1,28 @@
 # 可视化智能语音交互控制系统
 
-工程化拆分版 Demo，用于课程实验、项目答辩和系统演示。主体为前端页面，真实摄像头手势识别通过本机 Python 服务接入。
+可信演示版 Demo，用于课程实验、项目答辩和系统展示。项目主体是原生前端控制台，配套一个本机 Python 摄像头手势识别服务。当前阶段不接入真实智能家居硬件，不做云部署，也不提供安全级声纹认证。
 
-## 功能范围
+## 当前真实能力
 
-- GUI 控制：客厅灯、空调、风扇、窗帘、全部开启、全部关闭。
-- 中文指令解析：支持“打开客厅灯”“关闭空调”“开启所有设备”等常见命令。
-- 语音控制：使用浏览器 Web Speech API，推荐 Chrome / Edge。
-- 模拟手势：手掌、拳头、比耶、举手映射到设备控制。
-- 摄像头手势：通过 Python + OpenCV + MediaPipe Gesture Recognizer 识别 `Open_Palm` 和 `Closed_Fist`。
-- 模拟声纹：授权 / 未授权模式切换；未授权用户的语音控制会被拒绝。
-- 可视化反馈：灯光发光、空调气流、风扇旋转、窗帘开合、状态灯和日志动效。
-- 自检入口：页面右侧“运行交互自检”会自动跑 GUI、手势、声纹拒绝和异常指令路径。
+- 前端控制台：客厅灯、空调、风扇、窗帘的开关、滑块调节、状态可视化和房间仿真。
+- 中文文本/语音指令：支持“打开客厅灯”“风扇调到 5 档”“灯光调到一半”“全部关闭”等常见命令。
+- 命令安全解析：否定表达如“不要关灯”会被拒绝，不会被误执行成“关灯”。
+- 统一控制内核：GUI、文本、语音、手势、场景模式共享 `controller -> reducer -> render` 链路。
+- 真实摄像头手势：Python + OpenCV + MediaPipe Gesture Recognizer 识别 `Open_Palm` 和 `Closed_Fist`，通过 WebSocket 触发控制。
+- 系统诊断面板：展示前端环境、Web Speech API、麦克风权限、摄像头服务、声纹状态和自检结果。
+- 结构化自检：页面可自动跑 GUI、文本、场景、声纹拒绝、模拟手势、摄像头降级提示等路径，并生成报告。
+- 本地持久化：设备状态、声纹演示状态和昼夜氛围偏好会保存在浏览器 `localStorage` 中。
+
+## 演示模拟能力
+
+- 声纹验证是可信演示流程，不是真实生物识别。用户需要录入固定短句“打开客厅灯并关闭风扇”，再进行验证。
+- “授权测试 / 未授权测试”按钮用于演示通过和拒绝路径，不代表真实身份认证。
+- 模拟手势按钮包含手掌、拳头、比耶、举手；真实摄像头识别当前只覆盖 `Open_Palm` 和 `Closed_Fist`。
+- 设备控制是前端仿真状态，不会发送到 Matter、MQTT、Home Assistant、Tuya 或真实硬件。
 
 ## 运行方式
 
-在项目目录启动本地静态服务：
+启动前端静态服务：
 
 ```powershell
 cd D:\作业项目\visual-voice-control-system
@@ -28,90 +35,97 @@ node server.mjs
 http://localhost:5173/
 ```
 
-语音识别和麦克风权限建议通过 `localhost` 打开，不建议直接双击 `index.html`。
+PowerShell 若拦截 `npm.ps1`，可使用 `npm.cmd`：
 
-## 主要文件
+```powershell
+npm.cmd run verify
+```
 
-- `index.html`：页面结构。
-- `css/style.css`：视觉风格、布局、设备动效、响应式适配。
-- `js/app.js`：程序入口和事件绑定。
-- `js/state.js`：全局状态。
-- `js/commands.js`：中文指令字典和解析。
-- `js/controller.js`：统一控制入口。
-- `js/renderer.js`：界面渲染和图标渲染。
-- `js/voice.js`：语音识别接入。
-- `js/gesture.js`：模拟手势识别。
-- `js/gestureCamera.js`：摄像头手势识别 WebSocket 客户端。
-- `js/voiceprint.js`：模拟声纹身份鉴别。
-- `js/logger.js`：实时日志。
-- `server.mjs`：无依赖本地静态服务，默认监听 `http://127.0.0.1:5173/`。
-- `gesture_service.py`：Python 摄像头手势识别服务，默认监听 `ws://127.0.0.1:8765/ws/gesture`。
-- `requirements.txt`：Python 手势识别依赖。
-- `start-gesture-service.ps1`：摄像头识别服务启动脚本。
-
-## 真实摄像头手势识别
-
-建议使用 Python 3.10-3.12 环境运行 MediaPipe；如果当前 Python 版本无法安装 `mediapipe`，请新建兼容版本虚拟环境。
+## 摄像头手势服务
 
 安装依赖：
 
 ```powershell
-cd D:\作业项目\visual-voice-control-system
 python -m pip install -r requirements.txt
 ```
 
-下载 MediaPipe 手势模型：
+下载 MediaPipe 模型：
 
 ```powershell
 python scripts/download_gesture_model.py
 ```
 
-启动摄像头识别服务：
+先做本机自检：
+
+```powershell
+python gesture_service.py --self-check
+```
+
+启动服务：
 
 ```powershell
 python gesture_service.py
 ```
 
-也可以使用项目脚本：
-
-```powershell
-.\start-gesture-service.ps1
-```
-
-带摄像头预览窗口启动：
+带预览窗口启动：
 
 ```powershell
 python gesture_service.py --preview
 ```
 
-用静态图片测试识别：
+默认 WebSocket 地址：
 
-```powershell
-python gesture_service.py --test-images "D:\path\open-palm.jpg" "D:\path\fist.jpg"
+```text
+ws://127.0.0.1:8765/ws/gesture
 ```
 
-手势映射：
+服务启动时会打印 host、port、camera、confidence、stable-ms、cooldown-ms 等参数。页面中的“摄像头手势”卡片也允许修改 WebSocket 地址。
 
-- `Open_Palm`：五指打开全手掌，全部设备补充开启。已开启设备保持当前值，未开启设备恢复默认开启值。
-- `Closed_Fist`：五指握拳，全部设备关闭或降到最低状态。灯光 0%、空调 16°C 并关闭、风扇 0档、窗帘 0%。
+## 主要文件
 
-前端使用方式：
+- `index.html`：页面结构、控制面板、诊断面板、自检报告容器。
+- `css/style.css`：视觉风格、响应式布局、房间仿真和新增诊断/声纹/自检样式。
+- `js/state.js`：设备目录、场景预设、全局状态、诊断状态和声纹状态。
+- `js/controller.js`：统一控制入口，包含文本命令、单设备控制、滑块调节和场景执行。
+- `js/reducer.js`：纯函数设备状态规约。
+- `js/commands.js`：中文指令解析和手势映射。
+- `js/policy.js`：语音来源的声纹门控策略。
+- `js/voiceprint.js`：演示声纹录入、验证、重置和测试身份切换。
+- `js/diagnostics.js`：浏览器能力、语音、摄像头、声纹、自检诊断状态。
+- `js/smokeTest.js`：结构化交互自检。
+- `js/persistence.js`：设备和声纹状态的 localStorage 持久化。
+- `js/gestureCamera.js`：摄像头手势 WebSocket 客户端。
+- `gesture_service.py`：Python 摄像头手势识别服务。
+- `test/`：Node 内置测试覆盖解析、策略、规约、调度、日志、声纹、场景等逻辑。
 
-1. 先运行 `node server.mjs` 打开前端页面。
-2. 再运行 `python gesture_service.py`。
-3. 在页面“手势控制”区域点击“开启摄像头识别”。
-4. 对摄像头做五指打开或握拳，观察设备状态和日志。
+## 开发与测试
 
-## 测试建议
+```powershell
+npm.cmd run check
+npm.cmd test
+npm.cmd run verify
+```
 
-1. 点击设备手动控制按钮，确认状态文字、状态灯和仿真动效同步变化。
-2. 在文本指令测试中输入“打开客厅灯”“关闭空调”“关闭全部设备”等命令。
-3. 切换为“未授权用户”，再用语音或自检路径执行控制，确认系统拒绝执行。
-4. 点击手势按钮，确认“手掌 / 拳头 / 比耶 / 举手”能触发对应设备动作；该入口也是摄像头服务未启动时的降级测试。
-5. 点击“运行交互自检”，观察日志中的成功、异常和拒绝路径。
+`verify` 会先对 JS 文件做语法检查，再运行单元测试。
 
-## 已知限制
+## 手动验收建议
 
-- 真实摄像头手势识别需要额外安装 Python 依赖并下载 `models/gesture_recognizer.task`。
-- 真实声纹特征提取暂未接入，当前为可演示的授权状态模拟。
-- Web Speech API 的可用性取决于浏览器、麦克风权限和网络环境。
+1. 打开页面后查看“系统诊断”，确认前端、语音、摄像头、声纹、自检状态可读。
+2. 未录入声纹时尝试语音控制，应提示先录入声纹样本。
+3. 录入固定短句后，授权测试用户应能通过验证，未授权测试用户应被拒绝。
+4. 不启动 Python 服务时点击“开启摄像头识别”，应看到明确修复提示。
+5. 启动 Python 服务后，对摄像头做五指张开或握拳，观察设备状态和日志变化。
+6. 点击“运行交互自检”，确认报告显示每项通过/失败、耗时和失败原因。
+7. 刷新页面后确认设备状态、声纹状态和昼夜氛围偏好仍保留。
+
+## 后续可扩展方向
+
+- 接入真实声纹模型：录音采样、特征提取、embedding 比对、阈值配置和活体检测。
+- 接入真实设备网关：MQTT、Matter、Home Assistant、Tuya 或自定义 IoT API。
+- 增加后端鉴权层：所有控制入口由后端统一授权、审计和回放。
+- 扩展摄像头手势：增加更多可稳定识别的手势类别、手势校准和误触确认。
+- 增加多房间、多用户、自动化规则、定时任务和设备在线状态。
+
+## 安全提醒
+
+当前项目是演示原型。声纹门控仅在浏览器端生效，且控制面可通过浏览器控制台访问。请勿将其用于真实门禁、安防或生产级设备控制场景。

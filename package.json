@@ -1,0 +1,16 @@
+{
+  "name": "visual-voice-control-system",
+  "version": "1.0.0",
+  "description": "Smart-home control demo with unified dispatch across GUI, Chinese voice, text commands, and gestures.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "check": "node scripts/check-syntax.mjs",
+    "test": "node --test",
+    "verify": "node scripts/check-syntax.mjs && node --test"
+  }
+}

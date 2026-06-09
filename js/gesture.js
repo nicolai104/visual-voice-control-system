@@ -1,8 +1,9 @@
 import { appState } from "./state.js";
 import { gestureMap } from "./commands.js";
 import { addLog } from "./logger.js";
-import { renderApp } from "./renderer.js";
+import { markDirty } from "./scheduler.js";
 import { applyAllDevicesMinimumOff, applyAllDevicesOn, executeCommand } from "./controller.js";
+import { updateGestureDiagnostics } from "./diagnostics.js";
 
 let clearGestureTimer = null;
 
@@ -12,7 +13,7 @@ export function handleGestureResult(gestureCode, options = {}) {
 
   if (!gesture) {
     addLog(`手势识别失败：未知手势 ${gestureCode}`, "error");
-    renderApp();
+    markDirty("full");
     return false;
   }
 
@@ -31,10 +32,11 @@ export function handleGestureResult(gestureCode, options = {}) {
 
   const result = executeGestureAction(gesture, source);
 
-  window.clearTimeout(clearGestureTimer);
-  clearGestureTimer = window.setTimeout(() => {
+  const timerApi = globalThis.window || globalThis;
+  timerApi.clearTimeout(clearGestureTimer);
+  clearGestureTimer = timerApi.setTimeout(() => {
     appState.activeGesture = "";
-    renderApp();
+    markDirty("full");
   }, 1400);
 
   return result;
@@ -47,13 +49,14 @@ export function updateGestureObservation(payload) {
   appState.gesture.confidence = typeof payload.confidence === "number" ? payload.confidence : null;
   appState.gesture.stableMs = payload.stableMs || 0;
   appState.gesture.serviceMessage = getObservationMessage(payload);
-  renderApp();
+  markDirty("full");
 }
 
 export function updateGestureServiceStatus(status, message) {
   appState.gesture.serviceStatus = status;
   appState.gesture.serviceMessage = message;
-  renderApp();
+  updateGestureDiagnostics({ status, message, render: false });
+  markDirty("full");
 }
 
 function executeGestureAction(gesture, source) {

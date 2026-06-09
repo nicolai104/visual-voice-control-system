@@ -1,7 +1,8 @@
 import { appState } from "./state.js";
 import { addLog } from "./logger.js";
-import { renderApp } from "./renderer.js";
+import { markDirty } from "./scheduler.js";
 import { executeTextCommand } from "./controller.js";
+import { refreshMicrophonePermission, updateSpeechDiagnostics } from "./diagnostics.js";
 
 let recognition = null;
 let stopRequested = false;
@@ -12,8 +13,9 @@ export function initVoiceRecognition() {
 
   if (!SpeechRecognition) {
     appState.voice.lastError = "当前浏览器不支持 Web Speech API，请使用 Chrome / Edge";
+    updateSpeechDiagnostics({ supported: false, error: appState.voice.lastError, render: false });
     addLog("语音识别模块：当前浏览器不支持 Web Speech API", "warning");
-    renderApp();
+    markDirty("full");
     return;
   }
 
@@ -27,8 +29,9 @@ export function initVoiceRecognition() {
   recognition.onstart = () => {
     appState.voice.isListening = true;
     appState.voice.lastError = "";
+    updateSpeechDiagnostics({ supported: true, error: "", render: false });
     addLog("语音监听已启动，请说出中文控制指令", "info");
-    renderApp();
+    markDirty("full");
   };
 
   recognition.onresult = (event) => {
@@ -42,7 +45,7 @@ export function initVoiceRecognition() {
 
     if (!transcript) {
       addLog("语音识别结果为空，请重试", "warning");
-      renderApp();
+      markDirty("full");
       return;
     }
 
@@ -54,8 +57,9 @@ export function initVoiceRecognition() {
     const message = getVoiceErrorMessage(event.error);
     appState.voice.lastError = message;
     appState.voice.isListening = false;
+    updateSpeechDiagnostics({ supported: true, error: message, render: false });
     addLog(`语音识别异常：${message}`, "error");
-    renderApp();
+    markDirty("full");
   };
 
   recognition.onend = () => {
@@ -64,9 +68,10 @@ export function initVoiceRecognition() {
       addLog("语音监听已自动结束", "info");
     }
     stopRequested = false;
-    renderApp();
+    markDirty("full");
   };
 
+  updateSpeechDiagnostics({ supported: true, error: "", render: false });
   addLog("语音识别模块初始化完成", "info");
 }
 
@@ -76,25 +81,27 @@ export function startVoiceRecognition() {
   }
 
   if (!recognition) {
-    renderApp();
+    markDirty("full");
     return false;
   }
 
   if (appState.voice.isListening) {
     addLog("语音监听已在运行中", "warning");
-    renderApp();
+    markDirty("full");
     return false;
   }
 
   try {
     stopRequested = false;
+    refreshMicrophonePermission();
     recognition.start();
     return true;
   } catch (error) {
     appState.voice.isListening = false;
     appState.voice.lastError = "语音监听启动失败，请稍后重试";
+    updateSpeechDiagnostics({ supported: true, error: appState.voice.lastError, render: false });
     addLog(`语音监听启动失败：${error.message}`, "error");
-    renderApp();
+    markDirty("full");
     return false;
   }
 }
@@ -102,7 +109,7 @@ export function startVoiceRecognition() {
 export function stopVoiceRecognition() {
   if (!recognition || !appState.voice.isListening) {
     addLog("语音监听未启动", "warning");
-    renderApp();
+    markDirty("full");
     return false;
   }
 
@@ -110,7 +117,7 @@ export function stopVoiceRecognition() {
   recognition.stop();
   appState.voice.isListening = false;
   addLog("语音监听已停止", "info");
-  renderApp();
+  markDirty("full");
   return true;
 }
 
