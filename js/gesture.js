@@ -2,7 +2,7 @@ import { appState } from "./state.js";
 import { gestureMap } from "./commands.js";
 import { addLog } from "./logger.js";
 import { markDirty } from "./scheduler.js";
-import { applyAllDevicesMinimumOff, applyAllDevicesOn, executeCommand } from "./controller.js";
+import { applyAllDevicesMinimumOff, applyAllDevicesOn, executeCommand, executeScene } from "./controller.js";
 import { updateGestureDiagnostics } from "./diagnostics.js";
 
 let clearGestureTimer = null;
@@ -22,7 +22,8 @@ export function handleGestureResult(gestureCode, options = {}) {
   appState.gesture.latestTime = new Date();
   appState.gesture.confidence = confidence;
   appState.gesture.stableMs = stableMs;
-  appState.gesture.lastAction = gesture.actionType || `${gesture.command?.device || ""}:${gesture.command?.action || ""}`;
+  appState.gesture.lastAction =
+    gesture.actionType || (gesture.scene ? `scene:${gesture.scene}` : `${gesture.command?.device || ""}:${gesture.command?.action || ""}`);
   appState.activeGesture = gestureCode;
 
   const sourceText = source === "camera" ? "摄像头" : "模拟";
@@ -38,6 +39,7 @@ export function handleGestureResult(gestureCode, options = {}) {
     appState.activeGesture = "";
     markDirty("full");
   }, 1400);
+  if (typeof clearGestureTimer?.unref === "function") clearGestureTimer.unref();
 
   return result;
 }
@@ -60,6 +62,10 @@ export function updateGestureServiceStatus(status, message) {
 }
 
 function executeGestureAction(gesture, source) {
+  if (gesture.scene) {
+    return executeScene(gesture.scene, source);
+  }
+
   if (gesture.actionType === "all_on") {
     return applyAllDevicesOn(source);
   }
@@ -68,7 +74,13 @@ function executeGestureAction(gesture, source) {
     return applyAllDevicesMinimumOff(source);
   }
 
-  return executeCommand(gesture.command, "gesture");
+  if (!gesture.command) {
+    addLog("手势映射失败：缺少可执行动作", "error");
+    markDirty("full");
+    return false;
+  }
+
+  return executeCommand(gesture.command, source);
 }
 
 function getObservationMessage(payload) {

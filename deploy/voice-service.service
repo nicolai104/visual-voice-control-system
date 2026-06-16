@@ -1,0 +1,23 @@
+[Unit]
+Description=Visual Voice Control voice identity service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/visual-voice-control-system
+EnvironmentFile=/etc/visual-voice-control-system/voice.env
+Environment=HOME=/var/lib/visual-voice-control-system
+ExecStart=/var/www/visual-voice-control-system/.venv-voice/bin/python -m voice_service
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/visual-voice-control-system
+
+[Install]
+WantedBy=multi-user.target

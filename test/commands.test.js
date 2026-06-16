@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { parseCommand, normalizeInput, chineseToNumber } from "../js/commands.js";
+import { parseCommand, normalizeInput, chineseToNumber, gestureMap } from "../js/commands.js";
 
 test("normalizeInput strips punctuation and whitespace", () => {
   assert.equal(normalizeInput("  打开，客厅灯。 "), "打开客厅灯");
@@ -75,6 +75,16 @@ test("level: '风扇调到3档' parses to a set command", () => {
   assert.deepEqual(parseCommand("风扇调到3档").command, { device: "fan", action: "set", value: 3 });
 });
 
+test("planned voice phrases map to deterministic device commands", () => {
+  assert.deepEqual(parseCommand("打开风扇").command, { device: "fan", action: "on" });
+  assert.deepEqual(parseCommand("调整空调到26度").command, {
+    device: "airConditioner",
+    action: "set",
+    value: 26,
+  });
+  assert.deepEqual(parseCommand("关闭窗帘").command, { device: "curtain", action: "off" });
+});
+
 test("level: Chinese numeral '把风扇调到三档'", () => {
   assert.deepEqual(parseCommand("把风扇调到三档").command, { device: "fan", action: "set", value: 3 });
 });
@@ -103,4 +113,11 @@ test("chineseToNumber handles common forms", () => {
   assert.equal(chineseToNumber("二十六"), 26);
   assert.equal(chineseToNumber("一百"), 100);
   assert.equal(chineseToNumber("两"), 2);
+});
+
+test("gestureMap maps thumb gestures to home and away scenes", () => {
+  assert.equal(gestureMap.Thumb_Up.scene, "home");
+  assert.equal(gestureMap.Thumb_Down.scene, "away");
+  assert.equal(gestureMap.Thumb_Up.label, "拇指向上");
+  assert.equal(gestureMap.Thumb_Down.label, "拇指向下");
 });

@@ -7,12 +7,8 @@ import {
   updateDeviceLevel,
 } from "./controller.js";
 import { handleGestureResult, updateGestureServiceStatus } from "./gesture.js";
-import {
-  enrollVoiceprint,
-  resetVoiceprint,
-  setVoiceprintAuthorized,
-  verifyVoiceprint,
-} from "./voiceprint.js";
+import { applyVoiceVerification } from "./voiceprint.js";
+import { resetPolicyState } from "./policy.js";
 import { setSelfCheckRunning, updateSelfCheckDiagnostics } from "./diagnostics.js";
 import { markDirty } from "./scheduler.js";
 
@@ -59,22 +55,24 @@ export async function runSmokeTest({ delayMs = DEFAULT_DELAY_MS } = {}) {
   await run("否定指令不被误执行", () => executeTextCommand("不要关灯", "text") === false);
 
   await run("声纹未录入时拒绝语音控制", () => {
-    resetVoiceprint();
-    return executeTextCommand("打开客厅灯", "voice") === false;
+    appState.voiceprint.enrolled = false;
+    return executeTextCommand("打开客厅灯", "voice", {}) === false;
   });
 
   await run("声纹验证失败时拒绝语音控制", () => {
-    enrollVoiceprint(appState.voiceprint.samplePhrase);
-    setVoiceprintAuthorized(false);
-    verifyVoiceprint(appState.voiceprint.samplePhrase);
-    return executeTextCommand("关闭空调", "voice") === false;
+    appState.voiceprint.enrolled = true;
+    const verification = createVerification("self-check-rejected", false, 0.31);
+    applyVoiceVerification(verification);
+    return executeTextCommand("关闭空调", "voice", { voiceVerification: verification }) === false;
   });
 
   await run("声纹验证通过后允许语音控制", () => {
-    setVoiceprintAuthorized(true);
-    verifyVoiceprint(appState.voiceprint.samplePhrase);
+    resetPolicyState();
+    appState.voiceprint.enrolled = true;
+    const verification = createVerification("self-check-authorized", true, 0.91);
+    applyVoiceVerification(verification);
     executeCommand({ device: "light", action: "off" }, "test");
-    return executeTextCommand("打开客厅灯", "voice");
+    return executeTextCommand("打开客厅灯", "voice", { voiceVerification: verification });
   });
 
   await run("模拟手势 palm / fist 正常触发", () => {
@@ -94,6 +92,17 @@ export async function runSmokeTest({ delayMs = DEFAULT_DELAY_MS } = {}) {
   addLog(`交互自检完成：${report.passed}/${report.total} 通过`, report.passed === report.total ? "success" : "warning");
   markDirty("full");
   return report;
+}
+
+function createVerification(requestId, verified, similarity) {
+  return {
+    requestId,
+    verified,
+    similarity,
+    threshold: 0.55,
+    errorCode: verified ? null : "speaker_rejected",
+    message: verified ? "声纹验证通过" : "非授权用户，指令未执行",
+  };
 }
 
 export function createSmokeTestReport(items) {

@@ -13,10 +13,10 @@ import { handleGestureResult } from "./gesture.js";
 import { startCameraGestureRecognition, stopCameraGestureRecognition } from "./gestureCamera.js";
 import { initVoiceRecognition, startVoiceRecognition, stopVoiceRecognition } from "./voice.js";
 import {
-  enrollVoiceprint,
+  applyVoiceVerification,
+  initVoiceprintService,
   resetVoiceprint,
-  setVoiceprintAuthorized,
-  verifyVoiceprint,
+  toggleVoiceprintEnrollment,
 } from "./voiceprint.js";
 import { initHero } from "./hero.js";
 import { initToasts } from "./toast.js";
@@ -29,6 +29,7 @@ import {
   restoreVoiceprintState,
 } from "./persistence.js";
 import { runSmokeTest } from "./smokeTest.js";
+import { resetPolicyState } from "./policy.js";
 
 const AMBIANCE_KEY = "vvcs-ambiance";
 
@@ -46,6 +47,7 @@ function initApp() {
   restoreVoiceprintState();
   initDiagnostics();
   initVoiceRecognition();
+  initVoiceprintService();
   bindEvents();
   initHero();
   initToasts();
@@ -62,14 +64,13 @@ function initApp() {
     executeCommand,
     executeScene,
     executeTextCommand,
-    enrollVoiceprint,
+    applyVoiceVerification,
     handleGestureResult,
     resetVoiceprint,
     updateDeviceLevel,
-    verifyVoiceprint,
     startCameraGestureRecognition,
     stopCameraGestureRecognition,
-    setVoiceprintAuthorized,
+    initVoiceprintService,
     runSmokeTest,
   };
 }
@@ -82,14 +83,7 @@ function bindEvents() {
     startCameraGestureRecognition(input?.value);
   });
   document.getElementById("stopCameraGestureButton").addEventListener("click", stopCameraGestureRecognition);
-  document.getElementById("authorizedButton").addEventListener("click", () => setVoiceprintAuthorized(true));
-  document.getElementById("unauthorizedButton").addEventListener("click", () => setVoiceprintAuthorized(false));
-  document.getElementById("enrollVoiceprintButton").addEventListener("click", () => {
-    enrollVoiceprint(getVoiceprintSampleInput());
-  });
-  document.getElementById("verifyVoiceprintButton").addEventListener("click", () => {
-    verifyVoiceprint(getVoiceprintSampleInput());
-  });
+  document.getElementById("enrollVoiceprintButton").addEventListener("click", toggleVoiceprintEnrollment);
   document.getElementById("resetVoiceprintButton").addEventListener("click", resetVoiceprint);
   document.getElementById("gestureServiceUrlInput").addEventListener("change", (event) => {
     appState.gesture.serviceUrl = event.target.value.trim() || appState.gesture.serviceUrl;
@@ -173,6 +167,7 @@ function bindEvents() {
 
 function resetSystem() {
   resetState();
+  resetPolicyState();
   clearLogs();
   initDiagnostics();
   persistDeviceState();
@@ -180,6 +175,7 @@ function resetSystem() {
   updateSelfCheckDiagnostics(null, { render: false });
   addLog("系统已重置为演示初始状态", "system");
   addLog("设备与声纹状态已恢复为首次演示状态", "info");
+  initVoiceprintService();
   markDirty();
 }
 
@@ -188,11 +184,6 @@ function toggleAmbiance() {
   writeStored(AMBIANCE_KEY, appState.ambiance);
   addLog(`房间氛围已切换为${appState.ambiance === "day" ? "白昼" : "夜间"}模式`, "info");
   markDirty();
-}
-
-function getVoiceprintSampleInput() {
-  const input = document.getElementById("voiceprintSampleInput");
-  return input?.value || appState.voiceprint.samplePhrase;
 }
 
 document.addEventListener("DOMContentLoaded", initApp);

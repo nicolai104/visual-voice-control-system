@@ -149,6 +149,7 @@ function createDiagnostics() {
       meta: "等待浏览器能力检测",
       permission: "unknown",
       supported: false,
+      interimSupported: false,
       latestError: "",
       updatedAt: null,
     },
@@ -194,7 +195,12 @@ export const appState = {
   voice: {
     isListening: false,
     isSupported: false,
-    recognition: null,
+    interimSupported: false,
+    captureStatus: "idle",
+    commandStatus: "idle",
+    interimText: "",
+    finalText: "",
+    requestId: "",
     latestText: "暂无语音输入",
     latestConfidence: null,
     latestTime: null,
@@ -212,13 +218,21 @@ export const appState = {
     stableMs: 0,
   },
   voiceprint: {
-    authorized: true,
     enrolled: false,
     mode: "not_enrolled",
     verified: false,
     confidence: null,
+    similarity: null,
+    threshold: 0.55,
     samplePhrase: VOICEPRINT_SAMPLE_PHRASE,
     sampleSummary: "",
+    enrollmentSampleCount: 0,
+    isRecordingSample: false,
+    serviceStatus: "connecting",
+    modelReady: false,
+    asrConfigured: false,
+    ffmpegReady: false,
+    lastRequestId: "",
     lastMessage: "请先录入声纹样本",
     latestTime: null,
   },
@@ -235,6 +249,11 @@ export function resetState() {
   appState.devices = cloneDevices();
   appState.runtimeStatus = "运行中";
   appState.voice.isListening = false;
+  appState.voice.captureStatus = "idle";
+  appState.voice.commandStatus = "idle";
+  appState.voice.interimText = "";
+  appState.voice.finalText = "";
+  appState.voice.requestId = "";
   appState.voice.latestText = "暂无语音输入";
   appState.voice.latestConfidence = null;
   appState.voice.latestTime = null;
@@ -248,13 +267,21 @@ export function resetState() {
   appState.gesture.serviceUrl = GESTURE_SERVICE_DEFAULT_URL;
   appState.gesture.lastAction = "";
   appState.gesture.stableMs = 0;
-  appState.voiceprint.authorized = true;
   appState.voiceprint.enrolled = false;
   appState.voiceprint.mode = "not_enrolled";
   appState.voiceprint.verified = false;
   appState.voiceprint.confidence = null;
+  appState.voiceprint.similarity = null;
+  appState.voiceprint.threshold = 0.55;
   appState.voiceprint.samplePhrase = VOICEPRINT_SAMPLE_PHRASE;
   appState.voiceprint.sampleSummary = "";
+  appState.voiceprint.enrollmentSampleCount = 0;
+  appState.voiceprint.isRecordingSample = false;
+  appState.voiceprint.serviceStatus = "connecting";
+  appState.voiceprint.modelReady = false;
+  appState.voiceprint.asrConfigured = false;
+  appState.voiceprint.ffmpegReady = false;
+  appState.voiceprint.lastRequestId = "";
   appState.voiceprint.lastMessage = "请先录入声纹样本";
   appState.voiceprint.latestTime = null;
   appState.logFilter = { type: "all", source: "all" };

@@ -27,6 +27,16 @@ ACCEPTED_GESTURES = {
         "action": "all_minimum_off",
         "description": "全部设备关闭或降至最低状态",
     },
+    "Thumb_Up": {
+        "label": "拇指向上",
+        "action": "scene_home",
+        "description": "执行回家场景",
+    },
+    "Thumb_Down": {
+        "label": "拇指向下",
+        "action": "scene_away",
+        "description": "执行离家场景",
+    },
 }
 
 

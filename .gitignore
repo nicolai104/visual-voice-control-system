@@ -8,6 +8,10 @@ env/
 
 # Node
 node_modules/
+.vite-cache/
+dist/
+test-results/
+playwright-report/
 
 # OS / editor
 .DS_Store
@@ -17,3 +21,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Runtime voiceprint data and secrets
+data/voiceprints/
+.env
+.env.*
+!.env.example

@@ -1,5 +1,12 @@
 import { appState, DEVICE_ORDER, LEVEL_SETTINGS } from "./state.js";
 import { formatTime, logSourceLabel, logTypeLabel } from "./logger.js";
+import {
+  CURTAIN_FRAME_STEPS,
+  LIGHT_FRAME_STEPS,
+  curtainFramePath,
+  getFrameBlend,
+  roomFramePath,
+} from "./sceneFrames.js";
 
 const icons = {
   user: '<svg viewBox="0 0 24 24"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/></svg>',
@@ -37,11 +44,20 @@ export function initRenderer() {
     gestureStatus: document.getElementById("gestureStatus"),
     currentTime: document.getElementById("currentTime"),
     voiceCaption: document.getElementById("voiceCaption"),
+    liveTranscript: document.getElementById("liveTranscript"),
+    voiceTranscriptLabel: document.getElementById("voiceTranscriptLabel"),
+    voiceTranscript: document.getElementById("voiceTranscript"),
+    voiceCommandMatch: document.getElementById("voiceCommandMatch"),
+    startVoiceButton: document.getElementById("startVoiceButton"),
+    stopVoiceButton: document.getElementById("stopVoiceButton"),
     verificationCard: document.getElementById("verificationCard"),
     verificationTitle: document.getElementById("verificationTitle"),
     verificationMeta: document.getElementById("verificationMeta"),
-    authorizedButton: document.getElementById("authorizedButton"),
-    unauthorizedButton: document.getElementById("unauthorizedButton"),
+    enrollVoiceprintButton: document.getElementById("enrollVoiceprintButton"),
+    enrollVoiceprintButtonLabel: document.getElementById("enrollVoiceprintButtonLabel"),
+    resetVoiceprintButton: document.getElementById("resetVoiceprintButton"),
+    enrollmentProgress: document.getElementById("enrollmentProgress"),
+    voiceprintSamplePhrase: document.getElementById("voiceprintSamplePhrase"),
     manualDeviceList: document.getElementById("manualDeviceList"),
     deviceStatusList: document.getElementById("deviceStatusList"),
     latestVoiceText: document.getElementById("latestVoiceText"),
@@ -58,7 +74,6 @@ export function initRenderer() {
     latestVoiceprintTime: document.getElementById("latestVoiceprintTime"),
     verificationMark: document.getElementById("verificationMark"),
     voiceprintModeHint: document.getElementById("voiceprintModeHint"),
-    voiceprintSampleInput: document.getElementById("voiceprintSampleInput"),
     gestureServiceUrlInput: document.getElementById("gestureServiceUrlInput"),
     diagnosticRows: document.querySelectorAll(".diagnostic-row"),
     diagnosticFrontendTitle: document.getElementById("diagnosticFrontendTitle"),
@@ -83,6 +98,11 @@ export function initRenderer() {
     temperatureValue: document.getElementById("temperatureValue"),
     ambianceToggleButton: document.getElementById("ambianceToggleButton"),
     ambianceLabel: document.getElementById("ambianceLabel"),
+    sceneLightFrameA: document.getElementById("sceneLightFrameA"),
+    sceneLightFrameB: document.getElementById("sceneLightFrameB"),
+    curtainFrameA: document.getElementById("curtainFrameA"),
+    curtainFrameB: document.getElementById("curtainFrameB"),
+    acTemperatureDisplay: document.getElementById("acTemperatureDisplay"),
   };
 
   renderIconElements(document);
@@ -119,6 +139,8 @@ function renderAmbiance() {
 
 export function renderDeviceRuntimeState() {
   if (!refs) initRenderer();
+  const activeSlider =
+    document.activeElement?.matches?.("[data-level-device]") ? document.activeElement : null;
 
   renderBodyFlags();
   applyDeviceVisualVariables();
@@ -129,6 +151,9 @@ export function renderDeviceRuntimeState() {
   renderResults();
   renderLogs();
   renderIconElements(document);
+  if (activeSlider && document.contains(activeSlider) && document.activeElement !== activeSlider) {
+    activeSlider.focus({ preventScroll: true });
+  }
 }
 
 function renderBodyFlags() {
@@ -143,50 +168,140 @@ function renderBodyFlags() {
 function applyDeviceVisualVariables() {
   const root = document.documentElement;
   const light = appState.devices.light;
+  const airConditioner = appState.devices.airConditioner;
   const fan = appState.devices.fan;
   const curtain = appState.devices.curtain;
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
-  const lightIntensity = light.status ? light.levelValue / 100 : 0;
-  root.style.setProperty("--light-glow-opacity", (lightIntensity * 0.98).toFixed(2));
-  root.style.setProperty("--room-side-light", (0.06 + lightIntensity * 0.28).toFixed(2));
-  root.style.setProperty("--room-ceiling-light", (0.06 + lightIntensity * 0.38).toFixed(2));
-  root.style.setProperty("--light-panel-brightness", (0.58 + lightIntensity * 0.62).toFixed(2));
-  root.style.setProperty("--light-panel-shadow", `${Math.round(10 + lightIntensity * 48)}px`);
+  const lightLevel = light.status ? light.levelValue : 0;
+  const lightBlend = getFrameBlend(lightLevel, LIGHT_FRAME_STEPS, reducedMotion);
+  applyFramePair(
+    refs.sceneLightFrameA,
+    refs.sceneLightFrameB,
+    roomFramePath(appState.ambiance, lightBlend.current),
+    roomFramePath(appState.ambiance, lightBlend.next),
+    lightBlend.mix,
+  );
+  root.style.setProperty("--light-frame-mix", lightBlend.mix.toFixed(3));
 
-  const curtainRatio = curtain.status ? curtain.levelValue / 100 : 0;
-  const curtainTravel = Math.round(curtainRatio * 36);
-  const curtainScale = (1 - curtainRatio * 0.42).toFixed(2);
-  root.style.setProperty("--curtain-left-transform", `translateX(-${curtainTravel}%) scaleX(${curtainScale})`);
-  root.style.setProperty("--curtain-right-transform", `translateX(${curtainTravel}%) scaleX(${curtainScale})`);
+  const curtainLevel = curtain.status ? curtain.levelValue : 0;
+  const curtainBlend = getFrameBlend(curtainLevel, CURTAIN_FRAME_STEPS, reducedMotion);
+  applyFramePair(
+    refs.curtainFrameA,
+    refs.curtainFrameB,
+    curtainFramePath(curtainBlend.current),
+    curtainFramePath(curtainBlend.next),
+    curtainBlend.mix,
+  );
+  root.style.setProperty("--curtain-frame-mix", curtainBlend.mix.toFixed(3));
+
+  const coolingStrength = airConditioner.status
+    ? Math.max(0, Math.min(1, (30 - airConditioner.levelValue) / 14))
+    : 0;
+  root.style.setProperty("--ac-airflow-opacity", airConditioner.status ? (0.26 + coolingStrength * 0.66).toFixed(2) : "0");
+  root.style.setProperty("--ac-airflow-duration", `${(2.4 - coolingStrength * 1.3).toFixed(2)}s`);
+  root.style.setProperty("--ac-airflow-hue", `${Math.round(188 + coolingStrength * 18)}`);
+  root.style.setProperty("--ac-airflow-spread", `${Math.round(8 + coolingStrength * 12)}deg`);
+  if (refs.acTemperatureDisplay) refs.acTemperatureDisplay.textContent = String(airConditioner.levelValue);
 
   const fanLevel = fan.status ? fan.levelValue : 0;
   const fanDuration = Math.max(0.22, 1.35 - fanLevel * 0.105);
   root.style.setProperty("--fan-spin-duration", `${fanDuration.toFixed(2)}s`);
-  root.style.setProperty("--fan-ring-opacity", fanLevel > 0 ? Math.min(1, 0.25 + fanLevel / 10).toFixed(2) : "0");
+  root.style.setProperty("--fan-rotor-opacity", fanLevel > 0 ? (0.72 + fanLevel * 0.025).toFixed(2) : "1");
+  root.style.setProperty("--fan-motion-blur", fanLevel >= 7 ? "1.4px" : fanLevel >= 4 ? "0.7px" : "0px");
+
+  scheduleScenePrefetch(appState.ambiance);
+}
+
+function applyFramePair(frameA, frameB, sourceA, sourceB, mix) {
+  if (!frameA || !frameB) return;
+  updateFrameSource(frameA, sourceA);
+  updateFrameSource(frameB, sourceB);
+  frameA.style.opacity = "1";
+  frameB.style.opacity = sourceA === sourceB ? "0" : mix.toFixed(3);
+  frameA.dataset.frameStep = sourceA;
+  frameB.dataset.frameStep = sourceB;
+}
+
+function updateFrameSource(image, source) {
+  if (!image || image.dataset.frameSource === source) return;
+
+  const previous = image.dataset.frameSource || image.getAttribute("src") || "";
+  image.dataset.previousFrameSource = previous;
+  image.dataset.frameSource = source;
+  image.removeAttribute("data-frame-error");
+  image.onerror = () => {
+    const fallback = image.dataset.previousFrameSource;
+    image.dataset.frameError = source;
+    if (fallback && fallback !== source) {
+      image.dataset.frameSource = fallback;
+      image.src = fallback;
+    }
+  };
+  image.onload = () => {
+    image.removeAttribute("data-frame-error");
+  };
+  image.src = source;
+}
+
+const prefetchedSceneSets = new Set();
+
+function scheduleScenePrefetch(ambience) {
+  if (prefetchedSceneSets.has(ambience)) return;
+  prefetchedSceneSets.add(ambience);
+
+  const load = () => {
+    const paths = [
+      ...LIGHT_FRAME_STEPS.flatMap((step) => [
+        roomFramePath(ambience, step),
+      ]),
+      ...CURTAIN_FRAME_STEPS.map(curtainFramePath),
+    ];
+    paths.forEach((source) => {
+      const image = new Image();
+      image.decoding = "async";
+      image.src = source;
+    });
+  };
+
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(load, { timeout: 1800 });
+  } else {
+    window.setTimeout(load, 500);
+  }
 }
 
 function renderTopStatus() {
-  const voiceText = appState.voice.isListening ? "语音监听中" : "语音待机";
+  const voiceText =
+    appState.voice.captureStatus === "processing"
+      ? "语音处理中"
+      : appState.voice.isListening
+        ? "语音监听中"
+        : "语音待机";
   const gestureText = appState.gesture.latestCode ? `${appState.gesture.latestGesture}` : "手势待机";
-  const identityText = !appState.voiceprint.enrolled
-    ? "声纹未录入"
-    : appState.voiceprint.mode === "authorized"
-      ? "声纹通过"
-      : "声纹拒绝";
+  const identityText = getIdentityStatusText();
 
   setChip(refs.runtimeStatus, appState.runtimeStatus, "success");
   setChip(
     refs.identityStatus,
     identityText,
-    appState.voiceprint.mode === "authorized" ? "success" : appState.voiceprint.enrolled ? "danger" : "warning"
+    appState.voiceprint.mode === "authorized"
+      ? "success"
+      : appState.voiceprint.mode === "rejected" || appState.voiceprint.mode === "error"
+        ? "danger"
+        : "warning"
   );
   setChip(refs.voiceStatus, voiceText, appState.voice.isListening ? "info" : "neutral");
   setChip(refs.gestureStatus, gestureText, appState.gesture.latestCode ? "info" : "neutral");
   renderGestureServiceStatus();
 
-  refs.voiceCaption.textContent = appState.voice.isListening
-    ? "语音监听中..."
-    : appState.voice.lastError || "语音待机，等待监听";
+  refs.voiceCaption.textContent =
+    appState.voice.captureStatus === "processing"
+      ? "正在完成声纹验证与智谱转写..."
+      : appState.voice.isListening
+        ? "语音监听中，本条指令将独立验证声纹..."
+        : appState.voice.lastError || "语音待机，等待监听";
+  renderVoiceTranscript();
 }
 
 function setChip(element, text, mood) {
@@ -198,27 +313,93 @@ function setChip(element, text, mood) {
 }
 
 function renderVoiceprint() {
-  const authorized = appState.voiceprint.authorized;
   const mode = appState.voiceprint.mode;
   const enrolled = appState.voiceprint.enrolled;
-  const title = !enrolled ? "声纹样本未录入" : mode === "authorized" ? "声纹验证通过" : "声纹验证失败";
+  const title = getVoiceprintResultTitle();
   const meta = appState.voiceprint.lastMessage || (!enrolled ? "请先录入固定短句" : "等待声纹验证");
 
   refs.verificationTitle.textContent = title;
   refs.verificationMeta.textContent = meta;
-  refs.verificationCard.classList.toggle("danger", enrolled && mode === "rejected");
-  refs.verificationCard.classList.toggle("warning", !enrolled);
-  refs.authorizedButton.classList.toggle("active", authorized);
-  refs.unauthorizedButton.classList.toggle("active", !authorized);
+  refs.verificationCard.classList.toggle("danger", mode === "rejected" || mode === "error");
+  refs.verificationCard.classList.toggle("warning", !enrolled || mode === "enrolling" || mode === "pending");
   if (refs.verificationMark) refs.verificationMark.textContent = mode === "authorized" ? "✓" : "!";
   if (refs.voiceprintModeHint) {
     refs.voiceprintModeHint.textContent = enrolled
-      ? `样本：${appState.voiceprint.sampleSummary || "已录入"}；当前测试身份：${authorized ? "授权" : "未授权"}`
-      : "主流程：录入固定短句后再验证声纹。";
+      ? "已保存单一授权用户声纹；每条语音指令都会重新验证。"
+      : `${appState.voiceprint.lastMessage}（${appState.voiceprint.enrollmentSampleCount}/3）`;
   }
-  if (refs.voiceprintSampleInput && document.activeElement !== refs.voiceprintSampleInput) {
-    refs.voiceprintSampleInput.value = appState.voiceprint.samplePhrase;
+  if (refs.voiceprintSamplePhrase) {
+    refs.voiceprintSamplePhrase.textContent = appState.voiceprint.samplePhrase;
   }
+  const sampleNumber = Math.min(appState.voiceprint.enrollmentSampleCount + 1, 3);
+  if (refs.enrollVoiceprintButtonLabel) {
+    refs.enrollVoiceprintButtonLabel.textContent =
+      appState.voiceprint.isRecordingSample
+        ? `停止第 ${sampleNumber} 段`
+        : enrolled
+          ? "重新录入声纹"
+          : `录入第 ${sampleNumber} 段`;
+  }
+  refs.enrollmentProgress?.querySelectorAll("i").forEach((step, index) => {
+    step.classList.toggle("complete", index < appState.voiceprint.enrollmentSampleCount);
+  });
+
+  const serviceReady =
+    appState.voiceprint.modelReady &&
+    appState.voiceprint.asrConfigured &&
+    appState.voiceprint.ffmpegReady;
+  if (refs.enrollVoiceprintButton) {
+    refs.enrollVoiceprintButton.disabled =
+      (!serviceReady && mode !== "enrolling") ||
+      appState.voice.isListening ||
+      appState.voice.captureStatus === "processing";
+  }
+  if (refs.resetVoiceprintButton) {
+    refs.resetVoiceprintButton.disabled =
+      !enrolled && appState.voiceprint.enrollmentSampleCount === 0;
+  }
+  if (refs.startVoiceButton) {
+    refs.startVoiceButton.disabled =
+      !enrolled ||
+      !serviceReady ||
+      appState.voice.isListening ||
+      appState.voice.captureStatus === "processing";
+  }
+  if (refs.stopVoiceButton) refs.stopVoiceButton.disabled = !appState.voice.isListening;
+}
+
+function renderVoiceTranscript() {
+  if (!refs.liveTranscript) return;
+  const status = appState.voice.commandStatus || "idle";
+  refs.liveTranscript.dataset.status = status;
+  refs.voiceTranscriptLabel.textContent =
+    appState.voice.captureStatus === "processing" || appState.voice.finalText
+      ? "智谱最终字幕"
+      : appState.voice.isListening
+        ? "浏览器临时字幕"
+        : "实时字幕";
+  refs.voiceTranscript.textContent =
+    appState.voice.finalText ||
+    appState.voice.interimText ||
+    (appState.voice.isListening ? "正在聆听..." : "等待开始监听");
+  const messages = {
+    idle: "声纹通过后才会匹配并执行本条指令",
+    listening: "临时字幕仅用于即时显示，不会直接执行",
+    verifying: "正在并行完成声纹验证与智谱转写",
+    matched: "声纹与指令均已通过，设备状态已更新",
+    rejected: appState.voice.lastError || "声纹验证失败，设备状态保持不变",
+    unsupported: appState.voice.lastError || "字幕未匹配到支持的设备指令",
+  };
+  refs.voiceCommandMatch.textContent = messages[status] || messages.idle;
+}
+
+function getIdentityStatusText() {
+  if (appState.voiceprint.mode === "error") return "声纹服务异常";
+  if (appState.voiceprint.mode === "enrolling") return "声纹录入中";
+  if (!appState.voiceprint.enrolled) return "声纹未录入";
+  if (appState.voiceprint.mode === "authorized") return "本条声纹通过";
+  if (appState.voiceprint.mode === "rejected") return "本条声纹拒绝";
+  return "声纹已录入";
 }
 
 function renderDevices() {
@@ -264,6 +445,11 @@ function renderSceneReadouts() {
   refs.acTemperature.textContent = `${appState.devices.airConditioner.levelValue}°C`;
   refs.temperatureValue.textContent = `${appState.devices.airConditioner.levelValue}°C`;
   refs.fanLevel.textContent = `${appState.devices.fan.levelValue}档`;
+
+  document.querySelectorAll(".device-callout[data-command-device]").forEach((button) => {
+    const device = appState.devices[button.dataset.commandDevice];
+    if (device) button.setAttribute("aria-pressed", String(device.status));
+  });
 }
 
 function renderLevelSlider(deviceKey, device) {
@@ -326,7 +512,9 @@ function renderResults() {
   refs.latestVoiceText.textContent = appState.voice.latestText;
   refs.latestVoiceMeta.textContent = appState.voice.latestConfidence
     ? `置信度：${appState.voice.latestConfidence}%`
-    : appState.voice.lastError || "置信度：--";
+    : appState.voiceprint.similarity !== null
+      ? `声纹相似度：${Math.round(appState.voiceprint.similarity * 100)}%`
+      : appState.voice.lastError || "最终字幕：--";
   refs.latestVoiceTime.textContent = appState.voice.latestTime ? formatTime(appState.voice.latestTime) : "--:--:--";
 
   refs.latestGestureText.textContent = appState.gesture.latestGesture;
@@ -467,18 +655,21 @@ function getFilteredLogs() {
 }
 
 function getVoiceprintResultTitle() {
+  if (appState.voiceprint.mode === "error") return "声纹服务异常";
+  if (appState.voiceprint.mode === "enrolling") return "声纹录入中";
   if (!appState.voiceprint.enrolled) return "声纹样本未录入";
   if (appState.voiceprint.mode === "authorized") return "声纹验证通过";
   if (appState.voiceprint.mode === "rejected") return "声纹验证失败";
-  return "声纹等待验证";
+  return "声纹已录入，等待指令";
 }
 
 function getVoiceprintResultMeta() {
-  const identity = appState.voiceprint.authorized ? "授权测试用户" : "未授权测试用户";
-  if (!appState.voiceprint.enrolled) return `用户：${identity}　请先录入声纹`;
-  const confidence =
+  if (!appState.voiceprint.enrolled) {
+    return `录入进度：${appState.voiceprint.enrollmentSampleCount}/3`;
+  }
+  const similarity =
     appState.voiceprint.confidence === null ? "--" : `${appState.voiceprint.confidence}%`;
-  return `用户：${identity}　置信度：${confidence}`;
+  return `单一授权用户　相似度：${similarity}　阈值：${Math.round(appState.voiceprint.threshold * 100)}%`;
 }
 
 export function renderIconElements(root = document) {

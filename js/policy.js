@@ -1,33 +1,19 @@
 import { appState } from "./state.js";
 
-// Access-control policy layer.
-//
-// Centralizes "is this command allowed to run?" so the decision is no longer
-// buried inside the command dispatcher (architecture issue A6). The set of
-// protected sources is declared here in one place; the decision function is
-// pure (no state mutation) so it can be unit-tested, and the verification
-// side-effects are recorded separately via recordVerification().
-//
-// NOTE: this is a DEMO gate, not real security. It is enforced only on the
-// client and the whole control surface is reachable from the console — see the
-// README's "已知限制 / 安全提醒" section. Treat it as a UX simulation of
-// voiceprint gating, not an access-control boundary.
-
-// Sources that must pass voiceprint verification before they can control devices.
-// Adding e.g. "camera" here would extend the gate to camera gestures.
 export const PROTECTED_SOURCES = new Set(["voice"]);
 
-const CONFIDENCE_AUTHORIZED = 96;
-const CONFIDENCE_REJECTED = 42;
+const consumedVoiceRequests = new Set();
 
-// Pure: decide whether a command from `source` may execute, given the current
-// voiceprint authorization. Does NOT mutate state.
-export function evaluateCommandPolicy(source, voiceprint = appState.voiceprint) {
+export function evaluateCommandPolicy(
+  source,
+  voiceprint = appState.voiceprint,
+  context = {},
+) {
   if (!PROTECTED_SOURCES.has(source)) {
     return { allowed: true, reason: "unprotected" };
   }
 
-  if (!voiceprint.enrolled || voiceprint.mode === "not_enrolled") {
+  if (!voiceprint.enrolled) {
     return {
       allowed: false,
       reason: "not_enrolled",
@@ -35,41 +21,76 @@ export function evaluateCommandPolicy(source, voiceprint = appState.voiceprint) 
     };
   }
 
-  if (!voiceprint.authorized || voiceprint.mode !== "authorized") {
-    return { allowed: false, reason: "unauthorized", message: "非授权用户，已拒绝控制" };
+  const verification = context.voiceVerification;
+  if (!verification?.requestId) {
+    return {
+      allowed: false,
+      reason: "verification_required",
+      message: "本条语音指令缺少实时声纹验证",
+    };
   }
-  return { allowed: true, reason: "authorized" };
+  if (!verification.verified || verification.errorCode) {
+    return {
+      allowed: false,
+      reason: "unauthorized",
+      message: verification.message || "非授权用户，指令未执行",
+    };
+  }
+  if (
+    typeof verification.similarity !== "number" ||
+    verification.similarity < (verification.threshold ?? voiceprint.threshold ?? 0.55)
+  ) {
+    return {
+      allowed: false,
+      reason: "below_threshold",
+      message: "声纹相似度低于验证阈值，指令未执行",
+    };
+  }
+
+  return {
+    allowed: true,
+    reason: "authorized",
+    requestId: verification.requestId,
+    verification,
+  };
 }
 
-// Records the verification outcome on appState (the side-effect half that used
-// to be tangled into canExecuteVoiceCommand's return path).
-export function recordVerification(decision) {
+export function authorizeCommand(source, context = {}) {
+  const decision = evaluateCommandPolicy(source, appState.voiceprint, context);
+  if (!PROTECTED_SOURCES.has(source)) return decision;
+
+  if (decision.allowed && consumedVoiceRequests.has(decision.requestId)) {
+    const replayDecision = {
+      allowed: false,
+      reason: "verification_replayed",
+      message: "该声纹验证结果已被使用，请重新说出指令",
+    };
+    recordVerification(replayDecision, context.voiceVerification);
+    return replayDecision;
+  }
+
+  if (decision.allowed) consumedVoiceRequests.add(decision.requestId);
+  recordVerification(decision, context.voiceVerification);
+  return decision;
+}
+
+export function recordVerification(decision, verification = null) {
   appState.voiceprint.latestTime = new Date();
   appState.voiceprint.verified = decision.allowed;
-
-  if (!appState.voiceprint.enrolled) {
-    appState.voiceprint.mode = "not_enrolled";
-    appState.voiceprint.confidence = null;
-    appState.voiceprint.lastMessage = decision.message || "请先录入声纹样本";
-  } else if (decision.allowed) {
-    appState.voiceprint.mode = "authorized";
-    appState.voiceprint.confidence =
-      typeof appState.voiceprint.confidence === "number" ? appState.voiceprint.confidence : CONFIDENCE_AUTHORIZED;
-    appState.voiceprint.lastMessage = "声纹验证通过，允许语音控制";
-  } else {
-    appState.voiceprint.mode = "rejected";
-    appState.voiceprint.confidence =
-      typeof appState.voiceprint.confidence === "number" ? appState.voiceprint.confidence : CONFIDENCE_REJECTED;
-    appState.voiceprint.lastMessage = decision.message || "非授权用户，已拒绝控制";
-  }
+  appState.voiceprint.mode = decision.allowed ? "authorized" : "rejected";
+  appState.voiceprint.lastRequestId = verification?.requestId || "";
+  appState.voiceprint.similarity =
+    typeof verification?.similarity === "number" ? verification.similarity : null;
+  appState.voiceprint.confidence =
+    typeof verification?.similarity === "number"
+      ? Math.round(verification.similarity * 100)
+      : null;
+  appState.voiceprint.lastMessage = decision.allowed
+    ? "声纹验证通过，允许执行本条语音指令"
+    : decision.message || "声纹验证失败";
   return decision;
 }
 
-// Convenience used by the controller: evaluate + record in one call.
-export function authorizeCommand(source) {
-  const decision = evaluateCommandPolicy(source);
-  if (PROTECTED_SOURCES.has(source)) {
-    recordVerification(decision);
-  }
-  return decision;
+export function resetPolicyState() {
+  consumedVoiceRequests.clear();
 }

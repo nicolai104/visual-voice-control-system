@@ -4,7 +4,7 @@ import { reduceCommand, clampToSettings } from "./reducer.js";
 import { addLog } from "./logger.js";
 import { markDirty } from "./scheduler.js";
 import { authorizeCommand } from "./policy.js";
-import { persistDeviceState, persistVoiceprintState } from "./persistence.js";
+import { persistDeviceState } from "./persistence.js";
 import { updateVoiceprintDiagnostics } from "./diagnostics.js";
 
 function getSourceLabel(source) {
@@ -13,13 +13,21 @@ function getSourceLabel(source) {
 
 // --- Text / voice entry point ------------------------------------------------
 
-export function executeTextCommand(inputText, source = "text") {
+export function executeTextCommand(inputText, source = "text", context = {}) {
   const sourceLabel = getSourceLabel(source);
+  let decision = null;
 
   if (source === "voice") {
     appState.voice.latestText = inputText || "未识别到有效语音";
-    appState.voice.latestConfidence = inputText ? 98 : null;
+    appState.voice.latestConfidence = null;
     appState.voice.latestTime = new Date();
+    decision = authorizeCommand(source, context);
+    syncVoicePolicyDiagnostics(source);
+    if (!decision.allowed) {
+      addLog(decision.message || "已拒绝控制", "error");
+      markDirty("full");
+      return false;
+    }
   }
 
   const parsed = parseCommand(inputText);
@@ -30,12 +38,13 @@ export function executeTextCommand(inputText, source = "text") {
     return false;
   }
 
-  const decision = authorizeCommand(source);
-  syncVoicePolicyDiagnostics(source);
-  if (!decision.allowed) {
-    addLog(decision.message || "已拒绝控制", "error");
-    markDirty("full");
-    return false;
+  if (source !== "voice") {
+    decision = authorizeCommand(source, context);
+    if (!decision.allowed) {
+      addLog(decision.message || "已拒绝控制", "error");
+      markDirty("full");
+      return false;
+    }
   }
 
   if (parsed.command.action === "set") {
@@ -52,12 +61,12 @@ export function executeTextCommand(inputText, source = "text") {
   }
 
   addLog(`${sourceLabel}解析：${parsed.inputText} → ${parsed.command.device} / ${parsed.command.action}`, "info");
-  return executeCommand(parsed.command, source);
+  return applyCommand(parsed.command, source);
 }
 
 // --- Unified command dispatch (thin shell over the pure reducer) -------------
 
-export function executeCommand(command, source = "gui") {
+export function executeCommand(command, source = "gui", context = {}) {
   const sourceLabel = getSourceLabel(source);
 
   if (!command || !command.device || !command.action) {
@@ -66,7 +75,7 @@ export function executeCommand(command, source = "gui") {
     return false;
   }
 
-  const decision = authorizeCommand(source);
+  const decision = authorizeCommand(source, context);
   syncVoicePolicyDiagnostics(source);
   if (!decision.allowed) {
     addLog(decision.message || "已拒绝控制", "error");
@@ -74,6 +83,10 @@ export function executeCommand(command, source = "gui") {
     return false;
   }
 
+  return applyCommand(command, source);
+}
+
+function applyCommand(command, source) {
   const { devices, changes } = reduceCommand(appState.devices, command);
 
   const missing = changes.find((change) => change.missing);
@@ -240,6 +253,5 @@ export function updateDeviceLevel(deviceKey, rawValue, options = {}) {
 
 function syncVoicePolicyDiagnostics(source) {
   if (source !== "voice") return;
-  persistVoiceprintState();
   updateVoiceprintDiagnostics({ render: false });
 }

@@ -1,57 +1,56 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
-import { appState, resetState, VOICEPRINT_SAMPLE_PHRASE } from "../js/state.js";
+import { appState, resetState } from "../js/state.js";
 import {
-  enrollVoiceprint,
-  resetVoiceprint,
-  setVoiceprintAuthorized,
-  verifyVoiceprint,
+  applyVoiceVerification,
+  applyVoiceVerificationError,
   VOICEPRINT_THRESHOLD,
 } from "../js/voiceprint.js";
-import { evaluateCommandPolicy } from "../js/policy.js";
 
 beforeEach(() => resetState());
 
-test("voiceprint starts not enrolled and rejects voice policy", () => {
+test("voiceprint state starts not enrolled with the production threshold", () => {
   assert.equal(appState.voiceprint.enrolled, false);
   assert.equal(appState.voiceprint.mode, "not_enrolled");
-  const decision = evaluateCommandPolicy("voice", appState.voiceprint);
-  assert.equal(decision.allowed, false);
-  assert.equal(decision.reason, "not_enrolled");
+  assert.equal(VOICEPRINT_THRESHOLD, 0.55);
 });
 
-test("enrollVoiceprint records a sample and authorizes the default test identity", () => {
-  const result = enrollVoiceprint(VOICEPRINT_SAMPLE_PHRASE);
-  assert.equal(result.enrolled, true);
+test("applyVoiceVerification records a successful per-command result", () => {
+  appState.voiceprint.enrolled = true;
+  applyVoiceVerification({
+    verified: true,
+    similarity: 0.913,
+    threshold: 0.55,
+    requestId: "request-1",
+    message: "声纹验证通过",
+  });
+  assert.equal(appState.voiceprint.mode, "authorized");
+  assert.equal(appState.voiceprint.confidence, 91);
+  assert.equal(appState.voiceprint.lastRequestId, "request-1");
+});
+
+test("applyVoiceVerification records speaker rejection without clearing enrollment", () => {
+  appState.voiceprint.enrolled = true;
+  applyVoiceVerification({
+    verified: false,
+    similarity: 0.32,
+    threshold: 0.55,
+    requestId: "request-2",
+    errorCode: "speaker_rejected",
+    message: "非授权用户，指令未执行",
+  });
   assert.equal(appState.voiceprint.enrolled, true);
-  assert.equal(appState.voiceprint.mode, "authorized");
-  assert.ok(appState.voiceprint.confidence >= VOICEPRINT_THRESHOLD);
-  assert.ok(appState.voiceprint.sampleSummary.includes("字"));
-});
-
-test("verifyVoiceprint passes for authorized identity and fixed phrase", () => {
-  enrollVoiceprint(VOICEPRINT_SAMPLE_PHRASE);
-  const result = verifyVoiceprint(VOICEPRINT_SAMPLE_PHRASE);
-  assert.equal(result.ok, true);
-  assert.equal(appState.voiceprint.mode, "authorized");
-  assert.ok(result.confidence >= VOICEPRINT_THRESHOLD);
-});
-
-test("verifyVoiceprint fails for unauthorized identity", () => {
-  enrollVoiceprint(VOICEPRINT_SAMPLE_PHRASE);
-  setVoiceprintAuthorized(false);
-  const result = verifyVoiceprint(VOICEPRINT_SAMPLE_PHRASE);
-  assert.equal(result.ok, false);
   assert.equal(appState.voiceprint.mode, "rejected");
-  assert.ok(result.confidence >= 35);
-  assert.ok(result.confidence <= 65);
+  assert.equal(appState.voiceprint.confidence, 32);
 });
 
-test("resetVoiceprint clears enrollment", () => {
-  enrollVoiceprint(VOICEPRINT_SAMPLE_PHRASE);
-  resetVoiceprint();
+test("not_enrolled service errors clear the local enrollment flag", () => {
+  appState.voiceprint.enrolled = true;
+  applyVoiceVerificationError({
+    code: "not_enrolled",
+    message: "请先录入授权用户声纹",
+  });
   assert.equal(appState.voiceprint.enrolled, false);
   assert.equal(appState.voiceprint.mode, "not_enrolled");
-  assert.equal(appState.voiceprint.confidence, null);
 });

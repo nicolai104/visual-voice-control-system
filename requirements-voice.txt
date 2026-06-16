@@ -1,0 +1,9 @@
+# Use Python 3.9 or 3.10 for the production voice service.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+python-multipart>=0.0.12,<1
+zhipuai>=2.1.5
+numpy>=1.26,<3
+wespeaker>=0.1.5
+torch>=2.2
+torchaudio>=2.2

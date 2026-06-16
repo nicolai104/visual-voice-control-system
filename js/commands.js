@@ -43,6 +43,8 @@ export const gestureMap = {
   fist: { label: "拳头", actionType: "all_minimum_off", description: "拳头 → 全部设备关闭至最低状态" },
   Open_Palm: { label: "五指打开全手掌", actionType: "all_on", description: "Open_Palm → 全部设备补充开启" },
   Closed_Fist: { label: "五指握拳", actionType: "all_minimum_off", description: "Closed_Fist → 全部设备关闭至最低状态" },
+  Thumb_Up: { label: "拇指向上", scene: "home", description: "Thumb_Up → 回家场景（明亮舒适）" },
+  Thumb_Down: { label: "拇指向下", scene: "away", description: "Thumb_Down → 离家场景（低功耗）" },
   victory: { label: "比耶", command: { device: "fan", action: "on" }, description: "比耶 → 打开风扇" },
   raise: { label: "举手", command: { device: "all", action: "off" }, description: "举手 → 关闭全部设备" },
 };

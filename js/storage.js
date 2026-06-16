@@ -17,3 +17,11 @@ export function writeStored(key, value) {
     // ignore — persistence is best-effort
   }
 }
+
+export function removeStored(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // ignore — persistence is best-effort
+  }
+}

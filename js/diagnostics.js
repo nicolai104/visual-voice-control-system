@@ -60,16 +60,25 @@ export async function refreshMicrophonePermission() {
   }
 }
 
-export function updateSpeechDiagnostics({ supported, permission, error, render = true } = {}) {
+export function updateSpeechDiagnostics({
+  supported,
+  interimSupported,
+  permission,
+  error,
+  render = true,
+} = {}) {
   const speech = appState.diagnostics.speech;
   if (typeof supported === "boolean") speech.supported = supported;
+  if (typeof interimSupported === "boolean") speech.interimSupported = interimSupported;
   if (permission) speech.permission = permission;
   if (typeof error === "string") speech.latestError = error;
 
   const permissionText = permissionLabel(speech.permission);
   speech.status = speech.supported ? (speech.latestError ? "warning" : "ok") : "error";
-  speech.title = speech.supported ? "Web Speech API 可用" : "浏览器不支持语音识别";
-  speech.meta = speech.latestError || `麦克风权限：${permissionText}`;
+  speech.title = speech.supported ? "浏览器录音能力可用" : "浏览器不支持语音录音";
+  speech.meta =
+    speech.latestError ||
+    `麦克风权限：${permissionText} · 临时字幕：${speech.interimSupported ? "可用" : "不可用"}`;
   speech.updatedAt = new Date();
 
   if (render) markDirty("full");
@@ -164,6 +173,9 @@ function gestureTitle(status) {
 }
 
 function voiceprintTitle(voiceprint) {
+  if (voiceprint.mode === "error") return "声纹服务异常";
+  if (voiceprint.mode === "enrolling") return "声纹录入中";
+  if (voiceprint.mode === "pending" && voiceprint.enrolled) return "声纹已录入";
   if (!voiceprint.enrolled) return "声纹样本未录入";
   if (voiceprint.mode === "authorized") return "声纹验证通过";
   if (voiceprint.mode === "rejected") return "声纹验证失败";
@@ -172,6 +184,6 @@ function voiceprintTitle(voiceprint) {
 
 function voiceprintMeta(voiceprint) {
   if (!voiceprint.enrolled) return "请先录入固定演示短句";
-  if (voiceprint.confidence === null) return "已录入，等待验证";
-  return `置信度 ${voiceprint.confidence}%`;
+  if (voiceprint.confidence === null) return "已录入，每条语音指令都会重新验证";
+  return `相似度 ${voiceprint.confidence}% · 阈值 ${Math.round(voiceprint.threshold * 100)}%`;
 }

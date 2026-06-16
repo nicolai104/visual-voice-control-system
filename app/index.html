@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>可视化智能语音交互控制系统</title>
+    <link rel="preload" as="image" href="/assets/control-room/control-room-night-1440.avif" type="image/avif" />
+    <link rel="prefetch" as="image" href="/assets/control-room/control-room-day-1440.avif" type="image/avif" />
+    <link rel="stylesheet" href="../css/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar" aria-label="系统状态栏">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 48 48" role="img">
+              <path d="M8 11h12v26H8m12-19h8m-8 11h8m0-20v30m0-23h11m-11 11h7" />
+              <path d="M39 9v30" />
+            </svg>
+          </span>
+          <h1>可视化智能语音交互控制系统</h1>
+        </div>
+        <div class="status-strip">
+          <div class="status-chip success" id="runtimeStatus">
+            <span class="dot"></span>
+            <span>运行中</span>
+          </div>
+          <div class="status-chip success" id="identityStatus">
+            <span class="chip-icon" data-icon="user"></span>
+            <span>授权用户</span>
+          </div>
+          <div class="status-chip info" id="voiceStatus">
+            <span class="chip-icon" data-icon="mic"></span>
+            <span>语音待机</span>
+            <span class="wave-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+          </div>
+          <div class="status-chip neutral" id="gestureStatus">
+            <span class="chip-icon" data-icon="hand"></span>
+            <span>手势待机</span>
+          </div>
+        </div>
+        <div class="clock-panel">
+          <span class="chip-icon" data-icon="clock"></span>
+          <time id="currentTime">--:--:--</time>
+          <button class="icon-button" id="toggleHeroButton" type="button" title="显示/隐藏介绍" aria-label="显示或隐藏介绍">
+            <span class="chip-icon" data-icon="intro"></span>
+          </button>
+          <button class="icon-button" id="resetSystemButton" type="button" title="重置系统" aria-label="重置系统">
+            <span class="chip-icon" data-icon="settings"></span>
+          </button>
+        </div>
+      </header>
+
+      <section class="hero" id="hero" aria-label="项目介绍">
+        <div class="hero-inner">
+          <div class="hero-grid-glow" aria-hidden="true"></div>
+          <button class="hero-collapse" id="heroCollapseButton" type="button" title="收起介绍" aria-label="收起介绍" aria-expanded="true">
+            <span class="hero-collapse-icon" aria-hidden="true"></span>
+          </button>
+
+          <div class="hero-lead">
+            <span class="hero-eyebrow">SMART HOME · MULTIMODAL CONTROL</span>
+            <h2 class="hero-title">可视化智能<span class="hero-title-accent">语音交互</span>控制系统</h2>
+            <p class="hero-subtitle">用语音、手势、声纹与图形界面，四种方式重新定义家的控制。一套统一指令内核，驱动可视化房间仿真。</p>
+            <div class="hero-actions">
+              <button class="hero-cta" id="heroEnterButton" type="button">
+                进入控制台
+                <span class="hero-cta-arrow" aria-hidden="true">→</span>
+              </button>
+              <span class="hero-tech-badges" aria-hidden="true">
+                <span>原生 ES Module</span>
+                <span>MediaPipe</span>
+                <span>智谱 GLM-ASR</span>
+                <span>WeSpeaker</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="hero-modalities" aria-label="四种交互方式">
+            <div class="hero-card">
+              <span class="hero-card-icon chip-icon" data-icon="mic-large"></span>
+              <strong>语音控制</strong>
+              <span>中文指令实时识别，支持数值调节与否定守卫。</span>
+            </div>
+            <div class="hero-card">
+              <span class="hero-card-icon chip-icon" data-icon="hand"></span>
+              <strong>手势控制</strong>
+              <span>摄像头实时识别手掌 / 握拳，联动全屋设备。</span>
+            </div>
+            <div class="hero-card">
+              <span class="hero-card-icon chip-icon" data-icon="shield"></span>
+              <strong>声纹鉴权</strong>
+              <span>真实说话人向量比对，每条语音指令独立验证。</span>
+            </div>
+            <div class="hero-card">
+              <span class="hero-card-icon chip-icon" data-icon="settings"></span>
+              <strong>GUI 控制</strong>
+              <span>按钮、滑块与场景一键开关，所见即所得。</span>
+            </div>
+          </div>
+
+          <div class="hero-flow" aria-label="技术数据流">
+            <span class="hero-flow-title">统一指令内核</span>
+            <div class="hero-flow-chain">
+              <span>输入</span><i>→</i>
+              <span>解析</span><i>→</i>
+              <span>鉴权</span><i>→</i>
+              <span>纯函数规约</span><i>→</i>
+              <span>批量渲染</span>
+            </div>
+            <div class="hero-steps">
+              <span><b>1</b> 点「进入控制台」</span>
+              <span><b>2</b> 说指令 / 比手势 / 点按钮</span>
+              <span><b>3</b> 看房间与日志实时联动</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <main class="dashboard">
+        <aside class="panel control-panel" aria-label="控制面板">
+          <section class="panel-section voice-section">
+            <div class="section-title">
+              <span class="section-accent"></span>
+              <h2>语音控制</h2>
+            </div>
+            <div class="voice-orb" id="voiceOrb" aria-hidden="true">
+              <span class="voice-ring"></span>
+              <span class="voice-core">
+                <span class="chip-icon" data-icon="mic-large"></span>
+              </span>
+              <span class="audio-wave left"><i></i><i></i><i></i><i></i><i></i></span>
+              <span class="audio-wave right"><i></i><i></i><i></i><i></i><i></i></span>
+            </div>
+            <p class="voice-caption" id="voiceCaption">语音待机，等待监听</p>
+            <div class="live-transcript" id="liveTranscript" data-status="idle" aria-live="polite">
+              <span id="voiceTranscriptLabel">实时字幕</span>
+              <strong id="voiceTranscript">等待开始监听</strong>
+              <small id="voiceCommandMatch">声纹通过后才会匹配并执行本条指令</small>
+            </div>
+            <div class="button-row">
+              <button class="primary-button" id="startVoiceButton" type="button">
+                <span class="chip-icon" data-icon="play"></span>
+                开始监听
+              </button>
+              <button class="secondary-button" id="stopVoiceButton" type="button">
+                <span class="chip-icon" data-icon="stop"></span>
+                停止
+              </button>
+            </div>
+            <form class="manual-command" id="manualCommandForm">
+              <label for="manualCommandInput">文本指令测试</label>
+              <div class="command-input-row">
+                <input id="manualCommandInput" type="text" placeholder="例如：打开客厅灯" autocomplete="off" />
+                <button class="icon-button bright" type="submit" title="执行文本指令" aria-label="执行文本指令">
+                  <span class="chip-icon" data-icon="send"></span>
+                </button>
+              </div>
+              <div class="example-chips" aria-label="示例指令">
+                <span class="example-chips-label">试试：</span>
+                <button type="button" class="example-chip" data-example-command="打开客厅灯">打开客厅灯</button>
+                <button type="button" class="example-chip" data-example-command="关闭空调">关闭空调</button>
+                <button type="button" class="example-chip" data-example-command="风扇调到5档">风扇调到5档</button>
+                <button type="button" class="example-chip" data-example-command="灯光调到一半">灯光调到一半</button>
+                <button type="button" class="example-chip" data-example-command="全部关闭">全部关闭</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-title">
+              <span class="section-accent green"></span>
+              <h2>声纹验证</h2>
+            </div>
+            <div class="voiceprint-workflow">
+              <span class="workflow-note" id="voiceprintModeHint">连接声纹服务后，连续录入三段固定短句。</span>
+              <span class="voiceprint-phrase-label">固定录入短句</span>
+              <p class="voiceprint-phrase" id="voiceprintSamplePhrase">打开客厅灯并关闭风扇</p>
+              <div class="enrollment-progress" id="enrollmentProgress" aria-label="声纹录入进度">
+                <i></i><i></i><i></i>
+              </div>
+              <button class="primary-button full-width" id="enrollVoiceprintButton" type="button">
+                <span class="chip-icon" data-icon="shield"></span>
+                <span id="enrollVoiceprintButtonLabel">录入第 1 段</span>
+              </button>
+              <button class="ghost-button full-width" id="resetVoiceprintButton" type="button">清除声纹样本</button>
+            </div>
+            <div class="verification-card" id="verificationCard">
+              <span class="chip-icon" data-icon="shield"></span>
+              <div>
+                <strong id="verificationTitle">声纹样本未录入</strong>
+                <span id="verificationMeta">请先录入固定短句</span>
+              </div>
+              <span class="checkmark" id="verificationMark" aria-hidden="true">!</span>
+            </div>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-title">
+              <span class="section-accent cyan"></span>
+              <h2>手势控制</h2>
+            </div>
+            <div class="camera-gesture-card" id="cameraGestureCard">
+              <div class="camera-gesture-status">
+                <span class="gesture-service-dot" id="gestureServiceDot"></span>
+                <div>
+                  <strong id="gestureServiceTitle">摄像头识别未连接</strong>
+                  <span id="gestureServiceMeta">启动 Python 服务后连接 WebSocket</span>
+                </div>
+              </div>
+              <label class="service-url-label" for="gestureServiceUrlInput">WebSocket 地址</label>
+              <input class="service-url-input" id="gestureServiceUrlInput" type="text" value="ws://127.0.0.1:8765/ws/gesture" spellcheck="false" />
+              <div class="button-row">
+                <button class="primary-button" id="startCameraGestureButton" type="button">
+                  <span class="chip-icon" data-icon="camera"></span>
+                  开启摄像头识别
+                </button>
+                <button class="secondary-button" id="stopCameraGestureButton" type="button">
+                  <span class="chip-icon" data-icon="stop"></span>
+                  停止
+                </button>
+              </div>
+            </div>
+            <p class="gesture-subtitle">真实摄像头支持 Open_Palm / Closed_Fist / Thumb_Up / Thumb_Down；比耶和举手为模拟降级测试。</p>
+            <div class="gesture-grid" id="gestureGrid" aria-label="模拟手势按钮">
+              <button class="gesture-button" data-gesture="palm" type="button">
+                <span class="gesture-icon">掌</span>
+                手掌
+              </button>
+              <button class="gesture-button" data-gesture="fist" type="button">
+                <span class="gesture-icon">拳</span>
+                拳头
+              </button>
+              <button class="gesture-button" data-gesture="Thumb_Up" type="button">
+                <span class="gesture-icon">赞</span>
+                拇指向上
+              </button>
+              <button class="gesture-button" data-gesture="Thumb_Down" type="button">
+                <span class="gesture-icon">下</span>
+                拇指向下
+              </button>
+              <button class="gesture-button" data-gesture="victory" type="button">
+                <span class="gesture-icon">V</span>
+                比耶
+              </button>
+              <button class="gesture-button" data-gesture="raise" type="button">
+                <span class="gesture-icon">举</span>
+                举手
+              </button>
+            </div>
+            <ul class="gesture-legend" aria-label="手势映射图例">
+              <li><span class="gesture-legend-key">手掌 / 五指张开</span><span class="gesture-legend-act">全部设备补充开启</span></li>
+              <li><span class="gesture-legend-key">拳头 / 握拳</span><span class="gesture-legend-act">全部关闭至最低</span></li>
+              <li><span class="gesture-legend-key">拇指向上 / Thumb_Up</span><span class="gesture-legend-act">回家场景</span></li>
+              <li><span class="gesture-legend-key">拇指向下 / Thumb_Down</span><span class="gesture-legend-act">离家场景</span></li>
+              <li><span class="gesture-legend-key">比耶 ✌</span><span class="gesture-legend-act">打开风扇</span></li>
+              <li><span class="gesture-legend-key">举手 ✋</span><span class="gesture-legend-act">关闭全部设备</span></li>
+            </ul>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-title">
+              <span class="section-accent amber"></span>
+              <h2>场景控制</h2>
+            </div>
+            <div class="button-row">
+              <button class="success-button" data-command-device="all" data-command-action="on" type="button">
+                <span class="chip-icon" data-icon="power"></span>
+                全部开启
+              </button>
+              <button class="danger-button" data-command-device="all" data-command-action="off" type="button">
+                <span class="chip-icon" data-icon="power"></span>
+                全部关闭
+              </button>
+            </div>
+            <div class="scene-grid" aria-label="场景模式">
+              <button class="scene-button" data-scene="home" type="button"><strong>回家</strong><span>明亮舒适</span></button>
+              <button class="scene-button" data-scene="away" type="button"><strong>离家</strong><span>低功耗</span></button>
+              <button class="scene-button" data-scene="sleep" type="button"><strong>睡眠</strong><span>低亮弱风</span></button>
+              <button class="scene-button" data-scene="ventilate" type="button"><strong>通风</strong><span>开帘强风</span></button>
+            </div>
+          </section>
+
+          <section class="panel-section manual-devices">
+            <div class="section-title">
+              <span class="section-accent"></span>
+              <h2>设备手动控制</h2>
+            </div>
+            <div id="manualDeviceList" class="manual-device-list"></div>
+          </section>
+        </aside>
+
+        <section class="simulation-wrap" aria-label="智能房间仿真区域">
+          <div class="sim-header">
+            <div>
+              <h2>客厅</h2>
+              <span class="room-tag">Smart Home Lab</span>
+            </div>
+            <div class="environment-strip">
+              <span><span class="chip-icon" data-icon="thermo"></span> 室内温度 <strong id="temperatureValue">26°C</strong></span>
+              <span><span class="chip-icon" data-icon="drop"></span> 湿度 <strong>52%</strong></span>
+              <button class="ambiance-toggle" id="ambianceToggleButton" type="button" title="切换昼夜氛围" aria-label="切换昼夜氛围">
+                <span class="chip-icon" data-icon="moon"></span>
+                <span id="ambianceLabel">夜间</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="room-viewport">
+            <div class="room-scene" id="roomScene">
+              <div class="scene-layer scene-light-layer" aria-hidden="true">
+                <img
+                  id="sceneLightFrameA"
+                  class="scene-frame scene-frame-a"
+                  src="/assets/control-room-v2/room-night-075-1440.webp"
+                  alt=""
+                  width="1672"
+                  height="941"
+                  decoding="async"
+                  fetchpriority="high"
+                />
+                <img
+                  id="sceneLightFrameB"
+                  class="scene-frame scene-frame-b"
+                  src="/assets/control-room-v2/room-night-100-1440.webp"
+                  alt=""
+                  width="1672"
+                  height="941"
+                  decoding="async"
+                />
+              </div>
+
+              <div class="scene-layer curtain-system" data-device="curtain" aria-hidden="true">
+                <img id="curtainFrameA" class="scene-frame scene-frame-a" src="/assets/control-room-v2/curtain-000.webp" alt="" />
+                <img id="curtainFrameB" class="scene-frame scene-frame-b" src="/assets/control-room-v2/curtain-010.webp" alt="" />
+              </div>
+
+              <div class="ac-system" data-device="airConditioner" aria-hidden="true">
+                <img class="ac-body ac-body-off" src="/assets/control-room-v2/ac-off.webp" alt="" />
+                <img class="ac-body ac-body-on" src="/assets/control-room-v2/ac-on.webp" alt="" />
+                <span class="ac-temperature-display" id="acTemperatureDisplay">26</span>
+                <div class="ac-airflow">
+                  <i></i><i></i><i></i><i></i>
+                </div>
+              </div>
+
+              <div class="photo-fan" data-device="fan" aria-hidden="true">
+                <img class="photo-fan-shadow" src="/assets/control-room-v2/fan-shadow.webp" alt="" />
+                <div class="photo-fan-canvas">
+                  <img class="photo-fan-body" src="/assets/control-room-v2/fan-body.webp" alt="" />
+                  <span class="photo-fan-rotor-window">
+                    <img class="photo-fan-rotor" src="/assets/control-room-v2/fan-rotor.webp" alt="" />
+                  </span>
+                  <img class="photo-fan-grille" src="/assets/control-room-v2/fan-grille.webp" alt="" />
+                </div>
+              </div>
+
+              <button class="device-callout light-callout" data-command-device="light" data-command-action="toggle" type="button" aria-pressed="true">
+                <span class="callout-leader" aria-hidden="true"></span>
+                <strong>客厅灯</strong>
+                <span>亮度 <b id="lightLevel">80%</b></span>
+                <i class="callout-power"></i>
+              </button>
+              <button class="device-callout curtain-callout" data-command-device="curtain" data-command-action="toggle" type="button" aria-pressed="false">
+                <span class="callout-leader" aria-hidden="true"></span>
+                <strong>窗帘</strong>
+                <span>开合度 <b id="curtainLevel">0%</b></span>
+                <i class="callout-power"></i>
+              </button>
+              <button class="device-callout ac-callout" data-command-device="airConditioner" data-command-action="toggle" type="button" aria-pressed="true">
+                <span class="callout-leader" aria-hidden="true"></span>
+                <strong>空调</strong>
+                <span><b id="acTemperature">26°C</b> 制冷</span>
+                <i class="callout-power"></i>
+              </button>
+              <button class="device-callout fan-callout" data-command-device="fan" data-command-action="toggle" type="button" aria-pressed="false">
+                <span class="callout-leader" aria-hidden="true"></span>
+                <strong>风扇</strong>
+                <span>风速 <b id="fanLevel">0档</b></span>
+                <i class="callout-power"></i>
+              </button>
+
+              <div class="room-vignette" aria-hidden="true"></div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="panel status-panel" aria-label="状态面板">
+          <section class="panel-section diagnostics-section">
+            <div class="section-title">
+              <span class="section-accent green"></span>
+              <h2>系统诊断</h2>
+            </div>
+            <div class="diagnostics-grid" id="diagnosticsGrid">
+              <div class="diagnostic-row">
+                <span>前端服务</span>
+                <strong id="diagnosticFrontendTitle">待检测</strong>
+                <small id="diagnosticFrontendMeta">--</small>
+              </div>
+              <div class="diagnostic-row">
+                <span>语音能力</span>
+                <strong id="diagnosticSpeechTitle">待检测</strong>
+                <small id="diagnosticSpeechMeta">--</small>
+              </div>
+              <div class="diagnostic-row">
+                <span>摄像头手势</span>
+                <strong id="diagnosticGestureTitle">未连接</strong>
+                <small id="diagnosticGestureMeta">--</small>
+              </div>
+              <div class="diagnostic-row">
+                <span>声纹模块</span>
+                <strong id="diagnosticVoiceprintTitle">未录入</strong>
+                <small id="diagnosticVoiceprintMeta">--</small>
+              </div>
+              <div class="diagnostic-row">
+                <span>交互自检</span>
+                <strong id="diagnosticSelfCheckTitle">未运行</strong>
+                <small id="diagnosticSelfCheckMeta">--</small>
+              </div>
+            </div>
+            <ul class="repair-list" id="gestureRepairList"></ul>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-title">
+              <span class="section-accent"></span>
+              <h2>设备状态</h2>
+            </div>
+            <div id="deviceStatusList" class="device-status-list"></div>
+          </section>
+
+          <section class="panel-section result-card">
+            <div class="section-title">
+              <span class="section-accent cyan"></span>
+              <h2>最新语音识别结果</h2>
+            </div>
+            <div class="result-body">
+              <span class="result-icon"><span class="chip-icon" data-icon="mic-large"></span></span>
+              <div>
+                <strong id="latestVoiceText">暂无语音输入</strong>
+                <span id="latestVoiceMeta">置信度：--</span>
+              </div>
+              <time id="latestVoiceTime">--:--:--</time>
+            </div>
+          </section>
+
+          <section class="panel-section result-card">
+            <div class="section-title">
+              <span class="section-accent pink"></span>
+              <h2>最新手势识别结果</h2>
+            </div>
+            <div class="result-body">
+              <span class="result-icon hand">掌</span>
+              <div>
+                <strong id="latestGestureText">暂无手势</strong>
+                <span id="latestGestureMeta">识别结果：--</span>
+              </div>
+              <time id="latestGestureTime">--:--:--</time>
+            </div>
+          </section>
+
+          <section class="panel-section result-card">
+            <div class="section-title">
+              <span class="section-accent green"></span>
+              <h2>声纹验证结果</h2>
+            </div>
+            <div class="result-body">
+              <span class="result-icon shield"><span class="chip-icon" data-icon="shield"></span></span>
+              <div>
+                <strong id="latestVoiceprintText">声纹样本未录入</strong>
+                <span id="latestVoiceprintMeta">录入进度：0/3</span>
+              </div>
+              <time id="latestVoiceprintTime">--:--:--</time>
+            </div>
+          </section>
+
+          <section class="panel-section test-panel">
+            <div class="section-title">
+              <span class="section-accent amber"></span>
+              <h2>自检入口</h2>
+            </div>
+            <div class="button-row">
+              <button class="secondary-button" id="runSmokeTestButton" type="button">
+                <span class="chip-icon" data-icon="test"></span>
+                运行交互自检
+              </button>
+            </div>
+            <p class="hint">自动执行 GUI、文本、场景、手势、声纹拒绝、摄像头降级提示。</p>
+            <div class="self-check-report" id="selfCheckReport"></div>
+          </section>
+
+          <section class="panel-section constraints-section">
+            <div class="section-title">
+              <span class="section-accent pink"></span>
+              <h2>当前系统限制</h2>
+            </div>
+            <ul class="limit-list">
+              <li>设备控制仍为前端仿真，未接入真实智能家居硬件。</li>
+              <li>声纹采用真实说话人向量比对，但未实现录音回放检测或活体检测。</li>
+              <li>摄像头真实识别覆盖 Open_Palm / Closed_Fist / Thumb_Up / Thumb_Down。</li>
+            </ul>
+          </section>
+        </aside>
+
+        <section class="log-panel panel" aria-label="实时操作日志">
+          <div class="log-header">
+            <h2>实时操作日志</h2>
+            <div class="log-tools">
+              <select id="logTypeFilter" aria-label="按日志类型过滤">
+                <option value="all">全部类型</option>
+                <option value="success">成功</option>
+                <option value="warning">警告</option>
+                <option value="error">错误</option>
+                <option value="info">信息</option>
+                <option value="system">系统</option>
+              </select>
+              <select id="logSourceFilter" aria-label="按来源过滤">
+                <option value="all">全部来源</option>
+                <option value="gui">GUI</option>
+                <option value="voice">语音/声纹</option>
+                <option value="gesture">手势</option>
+                <option value="camera">摄像头</option>
+                <option value="text">文本</option>
+                <option value="test">自检</option>
+                <option value="system">系统</option>
+              </select>
+              <button class="ghost-button" id="clearLogsButton" type="button">清空日志</button>
+            </div>
+          </div>
+          <div class="log-output" id="logOutput" role="log" aria-live="polite"></div>
+          <div class="log-prompt" aria-hidden="true">
+            <span>&gt;_</span>
+            <i></i>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
+
+    <script type="module" src="../js/app.js"></script>
+  </body>
+</html>

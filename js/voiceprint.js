@@ -1,172 +1,212 @@
 import { appState } from "./state.js";
 import { addLog } from "./logger.js";
 import { markDirty } from "./scheduler.js";
-import { evaluateCommandPolicy, recordVerification } from "./policy.js";
 import { updateVoiceprintDiagnostics } from "./diagnostics.js";
-import { persistVoiceprintState } from "./persistence.js";
+import { startAudioCapture } from "./audioCapture.js";
+import {
+  deleteVoiceprintEnrollment,
+  enrollVoiceprintSamples,
+  fetchVoiceServiceStatus,
+} from "./voiceApi.js";
 
-// Owns the voiceprint authorization STATE (the user-facing 授权/未授权 switch).
-// The access-control DECISION lives in policy.js so it has a single home.
+export const VOICEPRINT_THRESHOLD = 0.55;
 
-export const VOICEPRINT_THRESHOLD = 80;
+let enrollmentSamples = [];
+let enrollmentSession = null;
 
-export function setVoiceprintAuthorized(authorized) {
-  appState.voiceprint.authorized = Boolean(authorized);
-  appState.voiceprint.latestTime = new Date();
-
-  if (!appState.voiceprint.enrolled) {
-    appState.voiceprint.mode = "not_enrolled";
-    appState.voiceprint.verified = false;
-    appState.voiceprint.confidence = null;
-    appState.voiceprint.lastMessage = authorized
-      ? "已切换为授权测试身份，请先录入声纹样本"
-      : "已切换为未授权测试身份，请先录入声纹样本";
-  } else {
-    applyVerificationResult(authorized ? 96 : 42, authorized, authorized ? "授权测试身份已通过" : "未授权测试身份将被拒绝");
-  }
-
-  addLog(
-    authorized ? "声纹演示身份：授权用户" : "声纹演示身份：未授权用户",
-    authorized ? "info" : "warning"
-  );
-
-  persistVoiceprintState();
-  updateVoiceprintDiagnostics({ render: false });
+export async function initVoiceprintService() {
+  appState.voiceprint.serviceStatus = "connecting";
+  appState.voiceprint.lastMessage = "正在连接声纹服务";
   markDirty("full");
-}
 
-export function enrollVoiceprint(sampleText) {
-  const normalized = normalizeSample(sampleText);
-  if (!normalized) {
-    appState.voiceprint.lastMessage = "录入失败：请输入或朗读固定短句";
+  try {
+    const status = await fetchVoiceServiceStatus();
+    applyServiceStatus(status);
+    addLog(`声纹服务状态：${status.message}`, status.service === "ready" ? "success" : "warning");
+    return status;
+  } catch (error) {
+    appState.voiceprint.serviceStatus = "error";
+    appState.voiceprint.enrolled = false;
+    appState.voiceprint.mode = "error";
+    appState.voiceprint.lastMessage = error.message;
     appState.voiceprint.latestTime = new Date();
-    addLog(appState.voiceprint.lastMessage, "warning");
     updateVoiceprintDiagnostics({ render: false });
     markDirty("full");
-    return { ok: false, reason: "empty", message: appState.voiceprint.lastMessage };
+    addLog(`声纹服务连接失败：${error.message}`, "error");
+    return null;
   }
-
-  const expected = normalizeSample(appState.voiceprint.samplePhrase);
-  const phraseMatched = normalized === expected;
-  appState.voiceprint.enrolled = true;
-  appState.voiceprint.sampleSummary = summarizeSample(normalized);
-  appState.voiceprint.latestTime = new Date();
-
-  if (!phraseMatched) {
-    applyVerificationResult(62, false, "声纹样本已录入，但短句与演示短句不一致");
-    addLog(appState.voiceprint.lastMessage, "warning");
-  } else {
-    applyVerificationResult(
-      appState.voiceprint.authorized ? 92 : 48,
-      appState.voiceprint.authorized,
-      appState.voiceprint.authorized
-        ? "声纹样本录入完成，授权用户验证通过"
-        : "声纹样本录入完成，当前为未授权测试身份"
-    );
-    addLog(
-      appState.voiceprint.authorized
-        ? "声纹录入完成：授权用户可使用语音控制"
-        : "声纹录入完成：未授权测试身份会被拒绝",
-      appState.voiceprint.authorized ? "success" : "warning"
-    );
-  }
-
-  persistVoiceprintState();
-  updateVoiceprintDiagnostics({ render: false });
-  markDirty("full");
-  return {
-    ok: phraseMatched,
-    enrolled: true,
-    mode: appState.voiceprint.mode,
-    confidence: appState.voiceprint.confidence,
-    message: appState.voiceprint.lastMessage,
-  };
 }
 
-export function verifyVoiceprint(sampleText) {
-  if (!appState.voiceprint.enrolled) {
-    appState.voiceprint.mode = "not_enrolled";
-    appState.voiceprint.verified = false;
-    appState.voiceprint.confidence = null;
+export async function toggleVoiceprintEnrollment() {
+  if (enrollmentSession) {
+    enrollmentSession.stop();
+    return true;
+  }
+
+  if (enrollmentSamples.length >= 3) enrollmentSamples = [];
+  if (appState.voiceprint.enrolled && enrollmentSamples.length === 0) {
+    appState.voiceprint.enrollmentSampleCount = 0;
+  }
+  appState.voiceprint.enrollmentSampleCount = enrollmentSamples.length;
+  appState.voiceprint.isRecordingSample = true;
+  appState.voiceprint.mode = "enrolling";
+  appState.voiceprint.lastMessage = `请朗读固定短句，正在录制第 ${enrollmentSamples.length + 1}/3 段`;
+  appState.voice.interimText = "";
+  markDirty("full");
+
+  try {
+    enrollmentSession = await startAudioCapture({
+      onInterim: updateInterimCaption,
+      onAutoStop: () => {
+        appState.voiceprint.lastMessage = "已达到 8 秒上限，正在处理当前样本";
+        markDirty("full");
+      },
+    });
+    const session = enrollmentSession;
+    session.done
+      .then(handleEnrollmentSample)
+      .catch(handleEnrollmentError)
+      .finally(() => {
+        enrollmentSession = null;
+        appState.voiceprint.isRecordingSample = false;
+        markDirty("full");
+      });
+    return true;
+  } catch (error) {
+    enrollmentSession = null;
+    appState.voiceprint.isRecordingSample = false;
+    handleEnrollmentError(error);
+    return false;
+  }
+}
+
+export async function resetVoiceprint() {
+  if (enrollmentSession) enrollmentSession.stop();
+  enrollmentSamples = [];
+  try {
+    const result = await deleteVoiceprintEnrollment();
+    applyNotEnrolled(result.message);
+    addLog(result.message, "system");
+    return true;
+  } catch (error) {
+    appState.voiceprint.mode = "error";
+    appState.voiceprint.lastMessage = error.message;
     appState.voiceprint.latestTime = new Date();
-    appState.voiceprint.lastMessage = "请先录入声纹样本，再执行验证";
-    addLog(appState.voiceprint.lastMessage, "warning");
-    persistVoiceprintState();
     updateVoiceprintDiagnostics({ render: false });
     markDirty("full");
-    return { ok: false, reason: "not_enrolled", message: appState.voiceprint.lastMessage };
+    addLog(`清除声纹失败：${error.message}`, "error");
+    return false;
   }
-
-  const normalized = normalizeSample(sampleText);
-  const phraseMatched = normalized === normalizeSample(appState.voiceprint.samplePhrase);
-  const confidence = calculateDemoConfidence(normalized, phraseMatched && appState.voiceprint.authorized);
-  const passed = confidence >= VOICEPRINT_THRESHOLD && phraseMatched && appState.voiceprint.authorized;
-  const message = passed
-    ? `声纹验证通过（置信度 ${confidence}%）`
-    : `声纹验证失败（置信度 ${confidence}%），语音控制将被拒绝`;
-
-  applyVerificationResult(confidence, passed, message);
-  addLog(message, passed ? "success" : "warning");
-  persistVoiceprintState();
-  updateVoiceprintDiagnostics({ render: false });
-  markDirty("full");
-
-  return {
-    ok: passed,
-    reason: passed ? "authorized" : "rejected",
-    confidence,
-    message,
-  };
 }
 
-export function resetVoiceprint() {
-  appState.voiceprint.authorized = true;
+export function applyVoiceVerification(result) {
+  appState.voiceprint.verified = Boolean(result?.verified);
+  appState.voiceprint.mode = result?.verified ? "authorized" : "rejected";
+  appState.voiceprint.similarity =
+    typeof result?.similarity === "number" ? result.similarity : null;
+  appState.voiceprint.confidence =
+    typeof result?.similarity === "number" ? Math.round(result.similarity * 100) : null;
+  appState.voiceprint.threshold =
+    typeof result?.threshold === "number" ? result.threshold : appState.voiceprint.threshold;
+  appState.voiceprint.lastRequestId = result?.requestId || "";
+  appState.voiceprint.lastMessage = result?.message || "声纹验证已完成";
+  appState.voiceprint.latestTime = new Date();
+  updateVoiceprintDiagnostics({ render: false });
+  markDirty("full");
+}
+export function applyVoiceVerificationError(error) {
+  appState.voiceprint.verified = false;
+  appState.voiceprint.mode = error?.code === "not_enrolled" ? "not_enrolled" : "error";
+  if (error?.code === "not_enrolled") appState.voiceprint.enrolled = false;
+  appState.voiceprint.similarity = null;
+  appState.voiceprint.confidence = null;
+  appState.voiceprint.lastMessage = error?.message || "声纹验证失败";
+  appState.voiceprint.latestTime = new Date();
+  updateVoiceprintDiagnostics({ render: false });
+  markDirty("full");
+}
+
+export function getEnrollmentButtonLabel() {
+  const sampleNumber = Math.min(enrollmentSamples.length + 1, 3);
+  return enrollmentSession ? `停止第 ${sampleNumber} 段` : `录入第 ${sampleNumber} 段`;
+}
+
+function applyServiceStatus(status) {
+  appState.voiceprint.serviceStatus = status.service;
+  appState.voiceprint.modelReady = Boolean(status.modelReady);
+  appState.voiceprint.asrConfigured = Boolean(status.asrConfigured);
+  appState.voiceprint.ffmpegReady = Boolean(status.ffmpegReady);
+  appState.voiceprint.enrolled = Boolean(status.enrolled);
+  appState.voiceprint.mode = status.enrolled ? "pending" : "not_enrolled";
+  appState.voiceprint.verified = false;
+  appState.voiceprint.threshold =
+    typeof status.threshold === "number" ? status.threshold : VOICEPRINT_THRESHOLD;
+  appState.voiceprint.samplePhrase = status.samplePhrase || appState.voiceprint.samplePhrase;
+  appState.voiceprint.lastMessage = status.message || "声纹服务状态已更新";
+  appState.voiceprint.latestTime = new Date();
+  updateVoiceprintDiagnostics({ render: false });
+  markDirty("full");
+}
+
+async function handleEnrollmentSample(sample) {
+  if (sample.durationMs < 1400) {
+    throw Object.assign(new Error("录音过短，请持续朗读至少 1.5 秒"), { code: "poor_audio" });
+  }
+  enrollmentSamples.push(sample);
+  appState.voiceprint.enrollmentSampleCount = enrollmentSamples.length;
+  appState.voiceprint.lastMessage =
+    enrollmentSamples.length < 3
+      ? `第 ${enrollmentSamples.length}/3 段已保存，请继续录入`
+      : "三段录音完成，正在提取声纹并核对短句";
+  markDirty("full");
+
+  if (enrollmentSamples.length !== 3) return;
+
+  try {
+    const result = await enrollVoiceprintSamples(enrollmentSamples);
+    appState.voiceprint.enrolled = true;
+    appState.voiceprint.mode = "pending";
+    appState.voiceprint.verified = false;
+    appState.voiceprint.enrollmentSampleCount = 3;
+    appState.voiceprint.lastMessage = result.message;
+    appState.voiceprint.latestTime = new Date();
+    addLog(result.message, "success");
+    enrollmentSamples = [];
+    updateVoiceprintDiagnostics({ render: false });
+    markDirty("full");
+  } catch (error) {
+    enrollmentSamples = [];
+    appState.voiceprint.enrollmentSampleCount = 0;
+    handleEnrollmentError(error);
+  }
+}
+
+function handleEnrollmentError(error) {
+  appState.voiceprint.mode = appState.voiceprint.enrolled ? "pending" : "not_enrolled";
+  appState.voiceprint.lastMessage = error?.message || "声纹录入失败";
+  appState.voiceprint.latestTime = new Date();
+  updateVoiceprintDiagnostics({ render: false });
+  markDirty("full");
+  addLog(`声纹录入失败：${appState.voiceprint.lastMessage}`, "error");
+}
+
+function updateInterimCaption(text) {
+  appState.voice.interimText = text;
+  appState.voice.latestText = text || "正在聆听固定短句";
+  markDirty("runtime");
+}
+
+function applyNotEnrolled(message) {
   appState.voiceprint.enrolled = false;
   appState.voiceprint.mode = "not_enrolled";
   appState.voiceprint.verified = false;
+  appState.voiceprint.similarity = null;
   appState.voiceprint.confidence = null;
-  appState.voiceprint.sampleSummary = "";
-  appState.voiceprint.lastMessage = "声纹样本已清除，请重新录入";
-  appState.voiceprint.latestTime = new Date();
-  addLog("声纹样本已清除", "system");
-  persistVoiceprintState();
-  updateVoiceprintDiagnostics({ render: false });
-  markDirty("full");
-}
-
-// Back-compat shim: evaluate the voice policy and record the verification
-// side-effects. Prefer authorizeCommand(source) from policy.js for new code.
-export function canExecuteVoiceCommand() {
-  const decision = evaluateCommandPolicy("voice");
-  recordVerification(decision);
-  return decision.allowed;
-}
-
-function applyVerificationResult(confidence, passed, message) {
-  appState.voiceprint.mode = passed ? "authorized" : "rejected";
-  appState.voiceprint.verified = passed;
-  appState.voiceprint.confidence = confidence;
+  appState.voiceprint.enrollmentSampleCount = 0;
+  appState.voiceprint.lastRequestId = "";
+  appState.voiceprint.isRecordingSample = false;
   appState.voiceprint.lastMessage = message;
   appState.voiceprint.latestTime = new Date();
-}
-
-function calculateDemoConfidence(sample, canPass) {
-  const wobble = hashSample(sample) % (canPass ? 9 : 31);
-  return canPass ? 88 + wobble : 35 + wobble;
-}
-
-function hashSample(sample) {
-  let hash = 0;
-  for (const ch of sample) {
-    hash = (hash * 31 + ch.charCodeAt(0)) % 9973;
-  }
-  return hash;
-}
-
-function normalizeSample(sampleText) {
-  return String(sampleText || "").replace(/[\s,，.。!！?？:：;；、"“”'‘’]/g, "").trim();
-}
-
-function summarizeSample(sample) {
-  return `${sample.slice(0, 4)}…${sample.slice(-4)} · ${sample.length}字`;
+  updateVoiceprintDiagnostics({ render: false });
+  markDirty("full");
 }
