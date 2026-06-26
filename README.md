@@ -113,5 +113,4 @@ python gesture_service.py --test-images "D:\path\open-palm.jpg" "D:\path\fist.jp
 ## 已知限制
 
 - 真实摄像头手势识别需要额外安装 Python 依赖并下载 `models/gesture_recognizer.task`。
-- 真实声纹特征提取暂未接入，当前为可演示的授权状态模拟。
 - Web Speech API 的可用性取决于浏览器、麦克风权限和网络环境。
